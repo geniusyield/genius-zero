@@ -72,3 +72,10 @@ export interface AppSettings {
   customTokens: TokenInfo[];
   autoRefreshInterval: number; // in seconds, 0 = disabled
 }
+
+export interface FetchProgress {
+  current: number;
+  total: number;
+  stage: string;
+  itemType?: string; // e.g. "UTxOs", "Orders", "Vaults", "Addresses"
+}

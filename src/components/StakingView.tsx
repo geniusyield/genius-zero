@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Vault,
   ShieldCheck,
@@ -11,6 +11,7 @@ import {
   Lock,
   Unlock,
   PlusCircle,
+  Database,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { DEX_CONSTANTS } from "../config/dex";
@@ -20,6 +21,8 @@ import {
   createStake,
   StakingVault,
 } from "../services/staking";
+import { FetchProgress } from "../types";
+import { ProgressBar } from "./ProgressBar";
 
 interface StakingViewProps {
   onOpenWallet: () => void;
@@ -33,6 +36,8 @@ export const StakingView: React.FC<StakingViewProps> = ({
   const { wallet, settings, lucid } = useApp();
   const [vaults, setVaults] = useState<StakingVault[]>([]);
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<FetchProgress | null>(null);
+  const abortRef = useRef<{ aborted: boolean }>({ aborted: false });
   const [unstakingRef, setUnstakingRef] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -42,10 +47,19 @@ export const StakingView: React.FC<StakingViewProps> = ({
 
   const constants = DEX_CONSTANTS[settings.network];
 
-  const loadVaults = async () => {
+  const cancelLoadVaults = () => {
+    abortRef.current.aborted = true;
+    setLoading(false);
+    setProgress(null);
+  };
+
+  const loadVaults = async (forceFullScan: boolean = false) => {
     if (!lucid) return;
     setLoading(true);
+    setProgress(null);
     setErrorMsg(null);
+    abortRef.current = { aborted: false };
+
     try {
       const walletTokenUnits = Object.keys(wallet.tokenBalances);
       const addressesToScan =
@@ -61,20 +75,28 @@ export const StakingView: React.FC<StakingViewProps> = ({
         walletTokenUnits,
         wallet.pkhs,
         addressesToScan,
-        settings.blockfrostApiKey
+        settings.blockfrostApiKey,
+        (p) => setProgress(p),
+        {
+          forceFullScan,
+          abortSignal: abortRef.current,
+        }
       );
-      setVaults(res);
+      if (!abortRef.current.aborted) {
+        setVaults(res);
+      }
     } catch (err: any) {
       console.error("Failed to load staking vaults:", err);
       setErrorMsg(err.message || "Failed to load on-chain vaults.");
     } finally {
       setLoading(false);
+      setProgress(null);
     }
   };
 
   useEffect(() => {
     if (lucid) {
-      loadVaults();
+      loadVaults(false);
     }
   }, [lucid, wallet.address, settings.network]);
 
@@ -248,7 +270,7 @@ export const StakingView: React.FC<StakingViewProps> = ({
               Inspect on-chain vaults and withdraw principal directly
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {settings.network === "preprod" && wallet.connected && (
               <button
                 onClick={() => setShowTestStakeModal(true)}
@@ -259,15 +281,35 @@ export const StakingView: React.FC<StakingViewProps> = ({
               </button>
             )}
             <button
-              onClick={loadVaults}
+              onClick={() => loadVaults(false)}
               disabled={loading || !lucid}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#182234] border border-[#1f2d44] text-xs font-semibold text-slate-300 hover:text-white transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#182234] border border-[#1f2d44] text-xs font-semibold text-slate-300 hover:text-white transition-colors disabled:opacity-50"
+              title="Fast scan: Checks your wallet transaction history in ~500ms"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-emerald-400" : ""}`} />
-              <span>Refresh</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${loading && !progress ? "animate-spin text-emerald-400" : ""}`} />
+              <span>Refresh (Fast)</span>
+            </button>
+            <button
+              onClick={() => loadVaults(true)}
+              disabled={loading || !lucid}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20 transition-colors disabled:opacity-50"
+              title="Full On-Chain Scan: Scans all on-chain staking vaults with live progress and caches all datums locally"
+            >
+              <Database className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Full On-Chain Scan</span>
             </button>
           </div>
         </div>
+
+        {/* Live Progress Bar Indicator */}
+        {loading && progress && (
+          <div className="pt-1">
+            <ProgressBar
+              progress={progress}
+              onCancel={cancelLoadVaults}
+            />
+          </div>
+        )}
 
         {!settings.blockfrostApiKey ? (
           <div className="text-center py-12 space-y-3">
@@ -291,7 +333,11 @@ export const StakingView: React.FC<StakingViewProps> = ({
           </div>
         ) : vaults.length === 0 ? (
           <div className="text-center py-12 text-xs text-slate-500 italic">
-            {loading ? "Scanning on-chain staking address..." : "No active vaults found at staking script."}
+            {loading
+              ? progress
+                ? `Scanning on-chain vaults: ${progress.current} / ${progress.total}...`
+                : "Scanning on-chain staking address..."
+              : "No active vaults found at staking script."}
           </div>
         ) : (
           <div className="overflow-x-auto">

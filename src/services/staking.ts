@@ -1,5 +1,5 @@
 import { LucidEvolution, UTxO, Data, Constr, getAddressDetails } from "@lucid-evolution/lucid";
-import { NetworkType } from "../types";
+import { NetworkType, FetchProgress } from "../types";
 import { DEX_CONSTANTS } from "../config/dex";
 import { getOrFetchDatum, getOrFetchTx } from "./cache";
 
@@ -24,6 +24,39 @@ export interface StakingVault {
   isUnlocked: boolean;
   isUserOwned: boolean;
   rawDatumHex?: string;
+}
+
+/**
+ * Concurrency runner for processing multiple items without exceeding rate limits.
+ */
+export async function runWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+  onProgress?: (current: number, total: number) => void,
+  shouldAbort?: () => boolean
+): Promise<R[]> {
+  const results: R[] = [];
+  let currentIndex = 0;
+  let completedCount = 0;
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (currentIndex < items.length) {
+      if (shouldAbort && shouldAbort()) break;
+      const idx = currentIndex++;
+      try {
+        const res = await fn(items[idx], idx);
+        results[idx] = res;
+      } catch (err) {
+        // Handled in caller's fn
+      }
+      completedCount++;
+      onProgress?.(completedCount, items.length);
+    }
+  });
+
+  await Promise.all(workers);
+  return results.filter((r) => r !== undefined);
 }
 
 /**
@@ -126,8 +159,9 @@ async function parseStakingUtxo(
 /**
  * Queries on-chain staking vaults and identifies those belonging to the user.
  * 
- * Blazing fast: Discovers the user's vaults in milliseconds from wallet transaction
- * history rather than sequentially parsing 3,600+ on-chain datums.
+ * Supports both:
+ * 1. Fast Path: Discovers user's vaults from wallet transaction history in ~500ms
+ * 2. Full On-Chain Scan: Comprehensive scan of all script UTxOs with live progress reporting (e.g. 37/1735)
  */
 export async function fetchUserStakingVaults(
   lucid: LucidEvolution,
@@ -135,21 +169,99 @@ export async function fetchUserStakingVaults(
   walletTokenUnits: string[],
   userPkhs: string[] = [],
   userAddresses: string[] = [],
-  blockfrostApiKey?: string
+  blockfrostApiKey?: string,
+  onProgress?: (progress: FetchProgress) => void,
+  options?: {
+    forceFullScan?: boolean;
+    abortSignal?: { aborted: boolean };
+  }
 ): Promise<StakingVault[]> {
   const constants = DEX_CONSTANTS[network];
   const stakingAddr = constants.stakingAddr;
   const vaults: StakingVault[] = [];
   const processedOutRefs = new Set<string>();
+  const normalizedUserPkhs = new Set(userPkhs.map((p) => p.toLowerCase()));
 
-  // 1. FAST PATH: Find user-owned vaults from wallet transaction history
+  // OPTION A: Full On-Chain Script Scan (User requested full audit or Preprod)
+  if (options?.forceFullScan) {
+    onProgress?.({
+      current: 0,
+      total: 1,
+      stage: "Querying on-chain staking contract...",
+      itemType: "UTxOs",
+    });
+
+    const scriptUtxos = await lucid.utxosAt(stakingAddr);
+    const total = scriptUtxos.length;
+
+    onProgress?.({
+      current: 0,
+      total,
+      stage: `Discovered ${total} on-chain vaults. Parsing datums...`,
+      itemType: "UTxOs",
+    });
+
+    await runWithConcurrency(
+      scriptUtxos,
+      8,
+      async (u) => {
+        const refKey = `${u.txHash}#${u.outputIndex}`;
+        if (processedOutRefs.has(refKey)) return;
+        processedOutRefs.add(refKey);
+
+        const vault = await parseStakingUtxo(lucid, u, constants, network, false);
+        if (vault) {
+          if (vault.ownerPkh && normalizedUserPkhs.has(vault.ownerPkh)) {
+            vault.isUserOwned = true;
+          }
+          vaults.push(vault);
+        }
+      },
+      (current, total) => {
+        onProgress?.({
+          current,
+          total,
+          stage: `Fetching on-chain vaults (${current}/${total})`,
+          itemType: "UTxOs",
+        });
+      },
+      () => !!options?.abortSignal?.aborted
+    );
+
+    vaults.sort((a, b) => {
+      if (a.isUserOwned && !b.isUserOwned) return -1;
+      if (!a.isUserOwned && b.isUserOwned) return 1;
+      return Number(b.stakedAmount - a.stakedAmount);
+    });
+
+    return vaults;
+  }
+
+  // OPTION B: FAST PATH via Wallet Transaction History
   if (blockfrostApiKey && userAddresses.length > 0) {
     const candidateRefs: { txHash: string; outputIndex: number }[] = [];
     const checkedTxHashes = new Set<string>();
 
-    // Scan up to 10 user addresses from the wallet
     const scanAddrs = userAddresses.slice(0, 10);
-    for (const addr of scanAddrs) {
+    const totalAddrs = scanAddrs.length;
+
+    onProgress?.({
+      current: 0,
+      total: totalAddrs,
+      stage: `Scanning wallet history (${totalAddrs} addresses)...`,
+      itemType: "Addresses",
+    });
+
+    for (let i = 0; i < scanAddrs.length; i++) {
+      if (options?.abortSignal?.aborted) break;
+      const addr = scanAddrs[i];
+      onProgress?.({
+        current: i + 1,
+        total: totalAddrs,
+        stage: `Checking wallet transactions (${i + 1}/${totalAddrs})...`,
+        itemType: "Addresses",
+      });
+
       try {
         const txsResp = await fetch(
           `${constants.blockfrostUrl}/addresses/${addr}/transactions?count=50&order=desc`,
@@ -159,6 +271,7 @@ export async function fetchUserStakingVaults(
         const txs: { tx_hash: string }[] = await txsResp.json();
 
         for (const tx of txs) {
+          if (options?.abortSignal?.aborted) break;
           if (checkedTxHashes.has(tx.tx_hash)) continue;
           checkedTxHashes.add(tx.tx_hash);
 
@@ -189,14 +302,30 @@ export async function fetchUserStakingVaults(
       }
     }
 
-    // Query only the candidate UTxOs to see if they are currently unspent
-    if (candidateRefs.length > 0) {
+    // Query candidate UTxOs to see if they are currently unspent
+    if (candidateRefs.length > 0 && !options?.abortSignal?.aborted) {
+      onProgress?.({
+        current: 0,
+        total: candidateRefs.length,
+        stage: `Verifying ${candidateRefs.length} candidate vaults on-chain...`,
+        itemType: "UTxOs",
+      });
+
       try {
         const liveUserUtxos = await lucid.utxosByOutRef(candidateRefs);
-        for (const u of liveUserUtxos) {
+        for (let k = 0; k < liveUserUtxos.length; k++) {
+          if (options?.abortSignal?.aborted) break;
+          const u = liveUserUtxos[k];
           const refKey = `${u.txHash}#${u.outputIndex}`;
           if (processedOutRefs.has(refKey)) continue;
           processedOutRefs.add(refKey);
+
+          onProgress?.({
+            current: k + 1,
+            total: liveUserUtxos.length,
+            stage: `Resolving vault datums (${k + 1}/${liveUserUtxos.length})...`,
+            itemType: "UTxOs",
+          });
 
           const vault = await parseStakingUtxo(lucid, u, constants, network, true);
           if (vault) vaults.push(vault);
@@ -207,16 +336,38 @@ export async function fetchUserStakingVaults(
     }
   }
 
-  // 2. PREPROD TESTNET FALLBACK: On Preprod (few UTxOs), scan directly
-  if (network === "preprod" && vaults.length === 0) {
+  // PREPROD TESTNET FALLBACK: On Preprod (few UTxOs), scan directly if no vaults found
+  if (network === "preprod" && vaults.length === 0 && !options?.abortSignal?.aborted) {
     try {
+      onProgress?.({
+        current: 0,
+        total: 1,
+        stage: "Querying Preprod staking script...",
+        itemType: "UTxOs",
+      });
       const scriptUtxos = await lucid.utxosAt(stakingAddr);
-      const normalizedUserPkhs = new Set(userPkhs.map((p) => p.toLowerCase()));
+      const total = scriptUtxos.length;
 
-      for (const u of scriptUtxos) {
+      onProgress?.({
+        current: 0,
+        total,
+        stage: `Scanning ${total} testnet vaults...`,
+        itemType: "UTxOs",
+      });
+
+      for (let i = 0; i < scriptUtxos.length; i++) {
+        if (options?.abortSignal?.aborted) break;
+        const u = scriptUtxos[i];
         const refKey = `${u.txHash}#${u.outputIndex}`;
         if (processedOutRefs.has(refKey)) continue;
         processedOutRefs.add(refKey);
+
+        onProgress?.({
+          current: i + 1,
+          total,
+          stage: `Parsing testnet vaults (${i + 1}/${total})...`,
+          itemType: "UTxOs",
+        });
 
         const vault = await parseStakingUtxo(lucid, u, constants, network, false);
         if (vault) {
@@ -231,8 +382,8 @@ export async function fetchUserStakingVaults(
     }
   }
 
-  // 3. COMMUNITY PREVIEW (Top 10): Fetch a small sample of active on-chain vaults
-  if (blockfrostApiKey && vaults.length < 15) {
+  // COMMUNITY PREVIEW (Top 10): Fetch a small sample of active on-chain vaults
+  if (blockfrostApiKey && vaults.length < 15 && !options?.abortSignal?.aborted) {
     try {
       const commResp = await fetch(
         `${constants.blockfrostUrl}/addresses/${stakingAddr}/utxos?count=10&page=1`,
@@ -251,7 +402,9 @@ export async function fetchUserStakingVaults(
 
         if (commRefs.length > 0) {
           const commUtxos = await lucid.utxosByOutRef(commRefs);
-          for (const u of commUtxos) {
+          for (let m = 0; m < commUtxos.length; m++) {
+            if (options?.abortSignal?.aborted) break;
+            const u = commUtxos[m];
             const refKey = `${u.txHash}#${u.outputIndex}`;
             if (processedOutRefs.has(refKey)) continue;
             processedOutRefs.add(refKey);

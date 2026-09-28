@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { LucidEvolution } from "@lucid-evolution/lucid";
 import {
   AppSettings,
@@ -7,6 +7,7 @@ import {
   OrderBook,
   TradingPair,
   WalletState,
+  FetchProgress,
 } from "../types";
 import {
   DEFAULT_TRADING_PAIRS,
@@ -41,7 +42,9 @@ interface AppContextType {
   orderBook: OrderBook;
   userOrders: DexOrder[];
   loadingOrderBook: boolean;
+  orderBookProgress: FetchProgress | null;
   refreshOrderBook: () => Promise<void>;
+  cancelRefreshOrderBook: () => void;
   placeOrder: (params: Omit<PlaceOrderParams, "pair">) => Promise<string>;
   cancelOrder: (order: DexOrder) => Promise<string>;
   actionPending: boolean;
@@ -103,6 +106,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   const [orderBook, setOrderBook] = useState<OrderBook>(initialOrderBook);
   const [userOrders, setUserOrders] = useState<DexOrder[]>([]);
   const [loadingOrderBook, setLoadingOrderBook] = useState<boolean>(false);
+  const [orderBookProgress, setOrderBookProgress] = useState<FetchProgress | null>(null);
+  const orderBookAbortRef = useRef<{ aborted: boolean }>({ aborted: false });
   const [actionPending, setActionPending] = useState<boolean>(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -233,35 +238,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     setOrderBook(initialOrderBook);
   }, [settings.network]);
 
+  // Cancel OrderBook fetch
+  const cancelRefreshOrderBook = useCallback(() => {
+    orderBookAbortRef.current.aborted = true;
+    setLoadingOrderBook(false);
+    setOrderBookProgress(null);
+  }, []);
+
   // Refresh OrderBook
   const refreshOrderBook = useCallback(async () => {
     if (!lucid) return;
 
     setLoadingOrderBook(true);
+    setOrderBookProgress(null);
+    orderBookAbortRef.current = { aborted: false };
+
     try {
       const userKeys = wallet.pkhs && wallet.pkhs.length > 0 ? wallet.pkhs : wallet.pkh || undefined;
       const book = await fetchAllOrdersForPair(
         lucid,
         settings.network,
         activePair,
-        userKeys
+        userKeys,
+        (p) => setOrderBookProgress(p),
+        orderBookAbortRef.current
       );
       setOrderBook(book);
 
-      if (userKeys) {
+      if (userKeys && !orderBookAbortRef.current.aborted) {
         const myOrders = await fetchUserOrders(
           lucid,
           settings.network,
-          userKeys
+          userKeys,
+          (p) => setOrderBookProgress(p),
+          orderBookAbortRef.current
         );
         setUserOrders(myOrders);
-      } else {
+      } else if (!userKeys) {
         setUserOrders([]);
       }
     } catch (err: any) {
       console.error("Order book refresh error:", err);
     } finally {
       setLoadingOrderBook(false);
+      setOrderBookProgress(null);
     }
   }, [lucid, settings.network, activePair, wallet.pkh, wallet.pkhs]);
 
@@ -345,7 +365,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         orderBook,
         userOrders,
         loadingOrderBook,
+        orderBookProgress,
         refreshOrderBook,
+        cancelRefreshOrderBook,
         placeOrder,
         cancelOrder,
         actionPending,

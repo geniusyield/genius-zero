@@ -2,6 +2,7 @@ import React from "react";
 import { ArrowUp, ArrowDown, Activity, RefreshCw } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { DexOrder } from "../types";
+import { ProgressBar } from "./ProgressBar";
 
 interface OrderBookViewProps {
   onSelectPrice?: (price: number, amount?: number) => void;
@@ -10,7 +11,7 @@ interface OrderBookViewProps {
 export const OrderBookView: React.FC<OrderBookViewProps> = ({
   onSelectPrice,
 }) => {
-  const { orderBook, activePair, loadingOrderBook } = useApp();
+  const { orderBook, activePair, loadingOrderBook, orderBookProgress, cancelRefreshOrderBook } = useApp();
 
   const formatPrice = (p: number) => {
     if (p < 0.0001) return p.toExponential(4);
@@ -64,6 +65,16 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* Progress Bar during fetch */}
+      {loadingOrderBook && orderBookProgress && (
+        <div className="p-3 bg-[#0d121c] border-b border-[#1f2d44]">
+          <ProgressBar
+            progress={orderBookProgress}
+            onCancel={cancelRefreshOrderBook}
+          />
+        </div>
+      )}
 
       {/* Column Titles */}
       <div className="grid grid-cols-3 px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider border-b border-[#1f2d44]/50 bg-[#0e131d]">
