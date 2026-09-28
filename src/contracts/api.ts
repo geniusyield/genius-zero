@@ -82,6 +82,8 @@ export const fetchPartialOrderConfig = async (
   }
 };
 
+import { getOrFetchDatum } from "../services/cache";
+
 export async function myDatumOf(
   lucid: LucidEvolution,
   utxo: UTxO
@@ -91,7 +93,9 @@ export async function myDatumOf(
     if (!utxo.datumHash) {
       throw new Error("This UTxO does not have a datum or datum hash.");
     }
-    datToResolve = await lucid.config().provider.getDatum(utxo.datumHash);
+    datToResolve = await getOrFetchDatum(utxo.datumHash, () =>
+      lucid.config().provider.getDatum(utxo.datumHash!)
+    );
   }
   return Data.from(datToResolve, PartialOrderDatum);
 }

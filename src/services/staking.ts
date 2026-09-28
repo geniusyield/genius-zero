@@ -1,6 +1,7 @@
 import { LucidEvolution, UTxO, Data, Constr, getAddressDetails } from "@lucid-evolution/lucid";
 import { NetworkType } from "../types";
 import { DEX_CONSTANTS } from "../config/dex";
+import { getOrFetchDatum, getOrFetchTx } from "./cache";
 
 // Pinned PlutusV1 Staking Validator Script from Genius Yield Core
 export const STAKING_VALIDATOR = {
@@ -74,16 +75,25 @@ async function parseStakingUtxo(
     let rawDatumHex: string | undefined;
 
     try {
-      const datum = (await lucid.datumOf(utxo)) as any;
-      if (datum && typeof datum === "object" && "fields" in datum && Array.isArray(datum.fields)) {
-        rawDatumHex = Data.to(datum);
-        ownerPkh = String(datum.fields[0]).toLowerCase();
+      let datumHex = utxo.datum;
+      if (!datumHex && utxo.datumHash) {
+        datumHex = await getOrFetchDatum(utxo.datumHash, async () => {
+          return await lucid.config().provider.getDatum(utxo.datumHash!);
+        });
+      }
 
-        const lockField = datum.fields[2];
-        if (lockField && typeof lockField === "object" && "index" in lockField && lockField.index === 0) {
-          const timeVal = lockField.fields?.[0];
-          if (timeVal !== undefined) {
-            lockedUntilMs = Number(timeVal);
+      if (datumHex) {
+        rawDatumHex = datumHex;
+        const datum = Data.from(datumHex) as any;
+        if (datum && typeof datum === "object" && "fields" in datum && Array.isArray(datum.fields)) {
+          ownerPkh = String(datum.fields[0]).toLowerCase();
+
+          const lockField = datum.fields[2];
+          if (lockField && typeof lockField === "object" && "index" in lockField && lockField.index === 0) {
+            const timeVal = lockField.fields?.[0];
+            if (timeVal !== undefined) {
+              lockedUntilMs = Number(timeVal);
+            }
           }
         }
       }
@@ -153,20 +163,23 @@ export async function fetchUserStakingVaults(
           checkedTxHashes.add(tx.tx_hash);
 
           try {
-            const utxoResp = await fetch(
-              `${constants.blockfrostUrl}/txs/${tx.tx_hash}/utxos`,
-              { headers: { project_id: blockfrostApiKey } }
-            );
-            if (!utxoResp.ok) continue;
-            const utxoData: { outputs: { address: string; output_index: number }[] } =
-              await utxoResp.json();
+            const utxoData = await getOrFetchTx(tx.tx_hash, async () => {
+              const res = await fetch(
+                `${constants.blockfrostUrl}/txs/${tx.tx_hash}/utxos`,
+                { headers: { project_id: blockfrostApiKey } }
+              );
+              if (!res.ok) return null;
+              return await res.json();
+            });
 
-            for (const out of utxoData.outputs) {
-              if (out.address === stakingAddr) {
-                candidateRefs.push({
-                  txHash: tx.tx_hash,
-                  outputIndex: out.output_index,
-                });
+            if (utxoData && utxoData.outputs) {
+              for (const out of utxoData.outputs) {
+                if (out.address === stakingAddr) {
+                  candidateRefs.push({
+                    txHash: tx.tx_hash,
+                    outputIndex: out.output_index,
+                  });
+                }
               }
             }
           } catch {}

@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { X, Key, Globe, Clock, Shield, ExternalLink, Check } from "lucide-react";
+import { X, Key, Globe, Clock, Shield, ExternalLink, Check, Database } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { NetworkType } from "../types";
+import { getCacheStats, clearCardanoCache } from "../services/cache";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -25,6 +26,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   );
   const [autoRefresh, setAutoRefresh] = useState(settings.autoRefreshInterval);
   const [saved, setSaved] = useState(false);
+  const [cacheStats, setCacheStats] = useState({ datums: 0, transactions: 0, tokens: 0 });
+
+  const loadStats = async () => {
+    const stats = await getCacheStats();
+    setCacheStats(stats);
+  };
+
+  const handleClearCache = async () => {
+    await clearCardanoCache();
+    await loadStats();
+  };
 
   // Sync state whenever modal is opened
   React.useEffect(() => {
@@ -39,6 +51,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           (settings.network === "preprod" ? settings.blockfrostApiKey : "")
       );
       setAutoRefresh(settings.autoRefreshInterval);
+      loadStats();
     }
   }, [isOpen, settings]);
 
@@ -187,6 +200,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   {interval === 0 ? "Off" : `${interval}s`}
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Cardano Local Immutable Cache */}
+          <div className="p-4 rounded-xl bg-[#182234] border border-[#1f2d44] space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <Database className="w-3.5 h-3.5 text-emerald-400" />
+                Cardano Immutable Cache (IndexedDB)
+              </span>
+              <button
+                type="button"
+                onClick={handleClearCache}
+                className="text-[11px] text-rose-400 hover:text-rose-300 transition-colors"
+              >
+                Clear Cache
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Cardano eUTxO datums and confirmed transactions are mathematically immutable. Once cached in browser IndexedDB, they never need to be fetched again from Blockfrost, saving thousands of API requests.
+            </p>
+            <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+              <div className="p-2.5 rounded-lg bg-[#0e131d] border border-[#1f2d44]/50">
+                <span className="text-slate-500 text-[10px] uppercase font-semibold">Cached Datums</span>
+                <div className="text-emerald-400 font-bold text-sm pt-0.5">{cacheStats.datums}</div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-[#0e131d] border border-[#1f2d44]/50">
+                <span className="text-slate-500 text-[10px] uppercase font-semibold">Cached Txs</span>
+                <div className="text-sky-400 font-bold text-sm pt-0.5">{cacheStats.transactions}</div>
+              </div>
             </div>
           </div>
         </div>
