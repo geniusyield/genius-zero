@@ -48,11 +48,20 @@ export const StakingView: React.FC<StakingViewProps> = ({
     setErrorMsg(null);
     try {
       const walletTokenUnits = Object.keys(wallet.tokenBalances);
+      const addressesToScan =
+        wallet.usedAddresses && wallet.usedAddresses.length > 0
+          ? wallet.usedAddresses
+          : wallet.address
+          ? [wallet.address]
+          : [];
+
       const res = await fetchUserStakingVaults(
         lucid,
         settings.network,
         walletTokenUnits,
-        wallet.pkhs
+        wallet.pkhs,
+        addressesToScan,
+        settings.blockfrostApiKey
       );
       setVaults(res);
     } catch (err: any) {
