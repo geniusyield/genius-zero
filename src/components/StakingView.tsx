@@ -89,6 +89,7 @@ export const StakingView: React.FC<StakingViewProps> = ({
         (p) => setProgress(p),
         {
           abortSignal: abortRef.current,
+          rewardAddress: wallet.rewardAddress,
         }
       );
       if (!abortRef.current.aborted) {

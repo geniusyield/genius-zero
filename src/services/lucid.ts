@@ -6,6 +6,8 @@ import {
   UTxO,
   getAddressDetails,
   paymentCredentialOf,
+  addressFromHexOrBech32,
+  credentialToRewardAddress,
 } from "@lucid-evolution/lucid";
 import { NetworkType } from "../types";
 import { DEX_CONSTANTS } from "../config/dex";
@@ -13,6 +15,22 @@ import { DEX_CONSTANTS } from "../config/dex";
 let lucidInstance: LucidEvolution | null = null;
 let currentApiKey = "";
 let currentNetwork: NetworkType = "mainnet";
+
+/**
+ * Normalizes a Cardano address (whether hex-encoded from CIP-30 or bech32) to standard bech32.
+ */
+export function toAddressBech32(rawAddr: string): string | null {
+  if (!rawAddr) return null;
+  if (rawAddr.startsWith("addr") || rawAddr.startsWith("stake")) {
+    return rawAddr;
+  }
+  try {
+    const cml = addressFromHexOrBech32(rawAddr);
+    return cml.to_bech32();
+  } catch {
+    return null;
+  }
+}
 
 export async function getLucid(
   apiKey: string,
@@ -130,12 +148,15 @@ export async function connectWallet(
     if (Array.isArray(rawUsed) && rawUsed.length > 0) {
       for (const raw of rawUsed) {
         try {
-          const details = getAddressDetails(raw);
-          if (details.address.bech32 && !usedAddresses.includes(details.address.bech32)) {
-            usedAddresses.push(details.address.bech32);
-          }
-          if (details.paymentCredential?.hash) {
-            pkhsSet.add(details.paymentCredential.hash);
+          const bech32 = toAddressBech32(raw);
+          if (bech32) {
+            const details = getAddressDetails(bech32);
+            if (!usedAddresses.includes(bech32)) {
+              usedAddresses.push(bech32);
+            }
+            if (details.paymentCredential?.hash) {
+              pkhsSet.add(details.paymentCredential.hash.toLowerCase());
+            }
           }
         } catch {
           // ignore individual address decode failure
@@ -149,15 +170,24 @@ export async function connectWallet(
   try {
     const rawRewards: string[] = await walletApi.getRewardAddresses();
     if (Array.isArray(rawRewards) && rawRewards.length > 0) {
-      try {
-        const details = getAddressDetails(rawRewards[0]);
-        rewardAddress = details.address.bech32;
-      } catch {
-        rewardAddress = rawRewards[0];
+      const bech32 = toAddressBech32(rawRewards[0]);
+      if (bech32) {
+        rewardAddress = bech32;
       }
     }
   } catch {
     // ignore
+  }
+
+  // Fallback: derive stake/reward address from primary Shelley base address
+  if (!rewardAddress) {
+    try {
+      const details = getAddressDetails(address);
+      if (details.stakeCredential) {
+        const net: Network = currentNetwork === "mainnet" ? "Mainnet" : "Preprod";
+        rewardAddress = credentialToRewardAddress(net, details.stakeCredential);
+      }
+    } catch {}
   }
 
   let balanceLovelace = 0n;

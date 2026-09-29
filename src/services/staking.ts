@@ -1,4 +1,11 @@
-import { LucidEvolution, UTxO, Data, Constr, getAddressDetails } from "@lucid-evolution/lucid";
+import {
+  LucidEvolution,
+  UTxO,
+  Data,
+  Constr,
+  getAddressDetails,
+  credentialToRewardAddress,
+} from "@lucid-evolution/lucid";
 import { NetworkType, FetchProgress } from "../types";
 import { DEX_CONSTANTS } from "../config/dex";
 import { getOrFetchDatum, getOrFetchTx } from "./cache";
@@ -316,6 +323,7 @@ export async function fetchUserStakingVaults(
   options?: {
     forceFullScan?: boolean;
     abortSignal?: { aborted: boolean };
+    rewardAddress?: string | null;
   }
 ): Promise<StakingVault[]> {
   const constants = DEX_CONSTANTS[network];
@@ -356,6 +364,48 @@ export async function fetchUserStakingVaults(
       if (addr && !seenAddrs.has(addr)) {
         seenAddrs.add(addr);
         addressesToScan.push(addr);
+      }
+    }
+
+    // Discover all addresses and payment credentials under the wallet's stake account (Eternl multi-address support)
+    let stakeAddress = options?.rewardAddress;
+    if (!stakeAddress && addressesToScan.length > 0) {
+      try {
+        const details = getAddressDetails(addressesToScan[0]);
+        if (details.stakeCredential) {
+          const net = network === "mainnet" ? "Mainnet" : "Preprod";
+          stakeAddress = credentialToRewardAddress(net, details.stakeCredential);
+        }
+      } catch {}
+    }
+
+    if (stakeAddress) {
+      try {
+        const accResp = await fetch(
+          `${constants.blockfrostUrl}/accounts/${stakeAddress}/addresses?count=100`,
+          { headers: { project_id: blockfrostApiKey } }
+        );
+        if (accResp.ok) {
+          const accAddrs: { address: string }[] = await accResp.json();
+          if (Array.isArray(accAddrs)) {
+            for (const item of accAddrs) {
+              if (item.address) {
+                if (!seenAddrs.has(item.address)) {
+                  seenAddrs.add(item.address);
+                  addressesToScan.push(item.address);
+                }
+                try {
+                  const details = getAddressDetails(item.address);
+                  if (details.paymentCredential?.hash) {
+                    normalizedUserPkhs.add(details.paymentCredential.hash.toLowerCase());
+                  }
+                } catch {}
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Could not query account addresses from Blockfrost:", err);
       }
     }
 
