@@ -33,6 +33,29 @@ interface StakingViewProps {
   onOpenSettings: () => void;
 }
 
+const SPENT_VAULTS_KEY = "genius_zero_spent_vaults";
+
+function getStoredSpentVaults(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = sessionStorage.getItem(SPENT_VAULTS_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function addStoredSpentVault(ref: string) {
+  if (typeof window === "undefined") return;
+  try {
+    const set = getStoredSpentVaults();
+    set.add(ref);
+    sessionStorage.setItem(SPENT_VAULTS_KEY, JSON.stringify(Array.from(set)));
+  } catch {}
+}
+
 export const StakingView: React.FC<StakingViewProps> = ({
   onOpenWallet,
   onOpenSettings,
@@ -44,6 +67,7 @@ export const StakingView: React.FC<StakingViewProps> = ({
   const abortRef = useRef<{ aborted: boolean }>({ aborted: false });
   const [unstakingRef, setUnstakingRef] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [latestTxHash, setLatestTxHash] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showTestStakeModal, setShowTestStakeModal] = useState(false);
   const [testAdaAmount, setTestAdaAmount] = useState("10");
@@ -79,6 +103,7 @@ export const StakingView: React.FC<StakingViewProps> = ({
           ? [wallet.address]
           : [];
 
+      const spentRefs = getStoredSpentVaults();
       const res = await fetchUserStakingVaults(
         lucid,
         settings.network,
@@ -90,10 +115,14 @@ export const StakingView: React.FC<StakingViewProps> = ({
         {
           abortSignal: abortRef.current,
           rewardAddress: wallet.rewardAddress,
+          spentRefs,
         }
       );
       if (!abortRef.current.aborted) {
-        setVaults(res);
+        const activeVaults = res.filter(
+          (v) => !spentRefs.has(`${v.utxoRef.txHash}#${v.utxoRef.outputIndex}`)
+        );
+        setVaults(activeVaults);
       }
     } catch (err: any) {
       console.error("Failed to load staking vaults:", err);
@@ -116,12 +145,33 @@ export const StakingView: React.FC<StakingViewProps> = ({
     setUnstakingRef(refKey);
     setErrorMsg(null);
     setSuccessMsg(null);
+    setLatestTxHash(null);
 
     try {
       const txHash = await unstakeVault(lucid, v);
+
+      // 1. Persist spent vault ref in session storage so refresh won't resurrect it while Blockfrost indexes
+      addStoredSpentVault(refKey);
+
+      // 2. Optimistic UI update: remove vault from React state immediately
+      setVaults((prev) =>
+        prev.filter(
+          (item) =>
+            !(
+              item.utxoRef.txHash === v.utxoRef.txHash &&
+              item.utxoRef.outputIndex === v.utxoRef.outputIndex
+            )
+        )
+      );
+
+      // 3. Set confirmation and explorer tracking
       setSuccessMsg(`Unstake transaction submitted successfully! TxHash: ${txHash}`);
-      // Refresh vaults after a short delay
-      setTimeout(loadVaults, 4000);
+      setLatestTxHash(txHash);
+
+      // 4. Background re-check after 45s once Cardano block & Blockfrost DBSync have processed
+      setTimeout(() => {
+        loadVaults();
+      }, 45_000);
     } catch (err: any) {
       console.error("Unstaking error:", err);
       setErrorMsg(err.message || "Failed to submit unstaking transaction.");
@@ -225,12 +275,34 @@ export const StakingView: React.FC<StakingViewProps> = ({
       {/* Status Notifications */}
       {successMsg && (
         <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>{successMsg}</span>
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            <div>
+              <p className="font-semibold text-white">Unstake Transaction Submitted</p>
+              <p className="text-emerald-300/90 text-[11px] mt-0.5">
+                The vault has been withdrawn and optimistically removed from your list. Funds will appear in your wallet once minted into a block.
+              </p>
+              {latestTxHash && (
+                <div className="mt-1.5 flex items-center gap-2">
+                  <span className="text-slate-400 text-[11px]">Track on Explorer:</span>
+                  <a
+                    href={`${explorerBaseUrl}/transaction/${latestTxHash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-emerald-400 hover:text-emerald-200 underline font-mono text-[11px] flex items-center gap-1"
+                  >
+                    {latestTxHash.slice(0, 16)}...{latestTxHash.slice(-8)}
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              )}
+            </div>
           </div>
           <button
-            onClick={() => setSuccessMsg(null)}
+            onClick={() => {
+              setSuccessMsg(null);
+              setLatestTxHash(null);
+            }}
             className="text-emerald-400 hover:text-white text-xs ml-4"
           >
             Dismiss

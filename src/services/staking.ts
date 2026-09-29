@@ -188,9 +188,11 @@ export async function fetchAllAddressUtxos(
     }
 
     try {
+      const timestamp = Date.now();
       const pagePromises = pageNumbers.map((p) =>
-        fetch(`${blockfrostUrl}/addresses/${address}/utxos?count=${countPerPage}&page=${p}`, {
+        fetch(`${blockfrostUrl}/addresses/${address}/utxos?count=${countPerPage}&page=${p}&_t=${timestamp}`, {
           headers: { project_id: blockfrostApiKey },
+          cache: "no-store",
         }).then(async (res) => {
           if (!res.ok) return [];
           return (await res.json()) as any[];
@@ -324,6 +326,7 @@ export async function fetchUserStakingVaults(
     forceFullScan?: boolean;
     abortSignal?: { aborted: boolean };
     rewardAddress?: string | null;
+    spentRefs?: Set<string>;
   }
 ): Promise<StakingVault[]> {
   const constants = DEX_CONSTANTS[network];
@@ -349,8 +352,9 @@ export async function fetchUserStakingVaults(
     );
 
     for (const raw of rawUtxos) {
-      scriptTxHashes.add(raw.tx_hash);
       const refKey = `${raw.tx_hash}#${raw.output_index}`;
+      if (options?.spentRefs?.has(refKey)) continue;
+      scriptTxHashes.add(raw.tx_hash);
       rawUtxoByRef.set(refKey, raw);
       const list = rawUtxosByTxHash.get(raw.tx_hash) || [];
       list.push(raw);
@@ -382,8 +386,11 @@ export async function fetchUserStakingVaults(
     if (stakeAddress) {
       try {
         const accResp = await fetch(
-          `${constants.blockfrostUrl}/accounts/${stakeAddress}/addresses?count=100`,
-          { headers: { project_id: blockfrostApiKey } }
+          `${constants.blockfrostUrl}/accounts/${stakeAddress}/addresses?count=100&_t=${Date.now()}`,
+          {
+            headers: { project_id: blockfrostApiKey },
+            cache: "no-store",
+          }
         );
         if (accResp.ok) {
           const accAddrs: { address: string }[] = await accResp.json();
@@ -437,9 +444,10 @@ export async function fetchUserStakingVaults(
           try {
             const pagePromises = pageNumbers.map((p) =>
               fetch(
-                `${constants.blockfrostUrl}/addresses/${addr}/transactions?count=${countPerPage}&page=${p}`,
+                `${constants.blockfrostUrl}/addresses/${addr}/transactions?count=${countPerPage}&page=${p}&_t=${Date.now()}`,
                 {
                   headers: { project_id: blockfrostApiKey },
+                  cache: "no-store",
                 }
               ).then(async (res) => {
                 if (!res.ok) return [];
@@ -494,6 +502,7 @@ export async function fetchUserStakingVaults(
     for (const raw of rawUtxos) {
       const refKey = `${raw.tx_hash}#${raw.output_index}`;
       if (processedOutRefs.has(refKey)) continue;
+      if (options?.spentRefs?.has(refKey)) continue;
       processedOutRefs.add(refKey);
 
       const isCandidate = userCandidateRefs.has(refKey);
@@ -585,14 +594,24 @@ export async function fetchUserStakingVaults(
     }
   }
 
+  const activeVaults =
+    options?.spentRefs && options.spentRefs.size > 0
+      ? vaults.filter(
+          (v) =>
+            !options.spentRefs!.has(
+              `${v.utxoRef.txHash}#${v.utxoRef.outputIndex}`
+            )
+        )
+      : vaults;
+
   // Sort user's owned vaults first, then by staked amount descending
-  vaults.sort((a, b) => {
+  activeVaults.sort((a, b) => {
     if (a.isUserOwned && !b.isUserOwned) return -1;
     if (!a.isUserOwned && b.isUserOwned) return 1;
     return Number(b.stakedAmount - a.stakedAmount);
   });
 
-  return vaults;
+  return activeVaults;
 }
 
 /**
