@@ -324,63 +324,13 @@ export async function fetchUserStakingVaults(
   const processedOutRefs = new Set<string>();
   const normalizedUserPkhs = new Set(userPkhs.map((p) => p.toLowerCase()));
 
-  // 1. FAST PATH: Find user-owned candidate UTxO references from wallet history
-  const userCandidateRefs = new Set<string>();
-  if (blockfrostApiKey && userAddresses.length > 0) {
-    const scanAddrs = userAddresses.slice(0, 10);
-    const checkedTxHashes = new Set<string>();
-
-    onProgress?.({
-      current: 0,
-      total: scanAddrs.length,
-      stage: `Checking wallet history (${scanAddrs.length} addresses)...`,
-      itemType: "Addresses",
-    });
-
-    for (let i = 0; i < scanAddrs.length; i++) {
-      if (options?.abortSignal?.aborted) break;
-      const addr = scanAddrs[i];
-
-      try {
-        const txsResp = await fetch(
-          `${constants.blockfrostUrl}/addresses/${addr}/transactions?count=50&order=desc`,
-          { headers: { project_id: blockfrostApiKey } }
-        );
-        if (!txsResp.ok) continue;
-        const txs: { tx_hash: string }[] = await txsResp.json();
-
-        for (const tx of txs) {
-          if (options?.abortSignal?.aborted) break;
-          if (checkedTxHashes.has(tx.tx_hash)) continue;
-          checkedTxHashes.add(tx.tx_hash);
-
-          try {
-            const utxoData = await getOrFetchTx(tx.tx_hash, async () => {
-              const res = await fetch(
-                `${constants.blockfrostUrl}/txs/${tx.tx_hash}/utxos`,
-                { headers: { project_id: blockfrostApiKey } }
-              );
-              if (!res.ok) return null;
-              return await res.json();
-            });
-
-            if (utxoData && utxoData.outputs) {
-              for (const out of utxoData.outputs) {
-                if (out.address === stakingAddr) {
-                  userCandidateRefs.add(`${tx.tx_hash}#${out.output_index}`);
-                }
-              }
-            }
-          } catch {}
-        }
-      } catch (err) {
-        console.warn("Wallet scan error for address:", addr, err);
-      }
-    }
-  }
-
-  // 2. DISCOVER ALL ON-CHAIN VAULTS AT STAKING SCRIPT
+  // 1. DISCOVER ALL ON-CHAIN VAULTS AT STAKING SCRIPT FIRST
   let rawUtxos: any[] = [];
+  const userCandidateRefs = new Set<string>();
+  const rawUtxoByRef = new Map<string, any>();
+  const rawUtxosByTxHash = new Map<string, any[]>();
+  const scriptTxHashes = new Set<string>();
+
   if (blockfrostApiKey) {
     rawUtxos = await fetchAllAddressUtxos(
       constants.blockfrostUrl,
@@ -390,6 +340,107 @@ export async function fetchUserStakingVaults(
       options?.abortSignal
     );
 
+    for (const raw of rawUtxos) {
+      scriptTxHashes.add(raw.tx_hash);
+      const refKey = `${raw.tx_hash}#${raw.output_index}`;
+      rawUtxoByRef.set(refKey, raw);
+      const list = rawUtxosByTxHash.get(raw.tx_hash) || [];
+      list.push(raw);
+      rawUtxosByTxHash.set(raw.tx_hash, list);
+    }
+
+    // 2. DISCOVER USER-OWNED VAULTS FROM WALLET TRANSACTION HISTORY
+    const addressesToScan: string[] = [];
+    const seenAddrs = new Set<string>();
+    for (const addr of userAddresses) {
+      if (addr && !seenAddrs.has(addr)) {
+        seenAddrs.add(addr);
+        addressesToScan.push(addr);
+      }
+    }
+
+    if (addressesToScan.length > 0) {
+      onProgress?.({
+        current: 0,
+        total: addressesToScan.length,
+        stage: `Scanning wallet history across ${addressesToScan.length} addresses...`,
+        itemType: "Addresses",
+      });
+
+      // Primary address: deep scan (up to 30 pages = 3,000 transactions)
+      // Secondary addresses: standard scan (up to 5 pages = 500 transactions each)
+      for (let addrIdx = 0; addrIdx < addressesToScan.length; addrIdx++) {
+        if (options?.abortSignal?.aborted) break;
+        const addr = addressesToScan[addrIdx];
+        const maxPages = addrIdx === 0 ? 30 : 5;
+        const countPerPage = 100;
+        const batchSize = 5;
+        let page = 1;
+
+        while (page <= maxPages) {
+          if (options?.abortSignal?.aborted) break;
+          const pageNumbers: number[] = [];
+          for (let i = 0; i < batchSize && page + i <= maxPages; i++) {
+            pageNumbers.push(page + i);
+          }
+
+          try {
+            const pagePromises = pageNumbers.map((p) =>
+              fetch(
+                `${constants.blockfrostUrl}/addresses/${addr}/transactions?count=${countPerPage}&page=${p}`,
+                {
+                  headers: { project_id: blockfrostApiKey },
+                }
+              ).then(async (res) => {
+                if (!res.ok) return [];
+                return (await res.json()) as { tx_hash: string }[];
+              })
+            );
+
+            const batchResults = await Promise.all(pagePromises);
+            let reachedEnd = false;
+
+            for (const txList of batchResults) {
+              if (!Array.isArray(txList) || txList.length === 0) {
+                reachedEnd = true;
+                break;
+              }
+
+              for (const tx of txList) {
+                if (scriptTxHashes.has(tx.tx_hash)) {
+                  const matchingUtxos = rawUtxosByTxHash.get(tx.tx_hash) || [];
+                  for (const m of matchingUtxos) {
+                    userCandidateRefs.add(`${m.tx_hash}#${m.output_index}`);
+                  }
+                }
+              }
+
+              if (txList.length < countPerPage) {
+                reachedEnd = true;
+                break;
+              }
+            }
+
+            if (userCandidateRefs.size > 0) {
+              onProgress?.({
+                current: userCandidateRefs.size,
+                total: rawUtxos.length,
+                stage: `Found ${userCandidateRefs.size} of your staking vaults...`,
+                itemType: "Vaults",
+              });
+            }
+
+            if (reachedEnd) break;
+            page += batchSize;
+          } catch (err) {
+            console.warn("Error scanning transactions for address:", addr, err);
+            break;
+          }
+        }
+      }
+    }
+
+    // 3. PARSE ALL VAULTS
     for (const raw of rawUtxos) {
       const refKey = `${raw.tx_hash}#${raw.output_index}`;
       if (processedOutRefs.has(refKey)) continue;
@@ -405,26 +456,38 @@ export async function fetchUserStakingVaults(
       vaults.push(vault);
     }
 
-    // 3. For any user-owned vaults, resolve datum hash if not already inline
+    // 4. RESOLVE CONTRACT DATUMS FOR USER-OWNED VAULTS
     const userVaultsToResolve = vaults.filter((v) => v.isUserOwned && !v.rawDatumHex);
     if (userVaultsToResolve.length > 0) {
       onProgress?.({
         current: 0,
         total: userVaultsToResolve.length,
-        stage: `Resolving details for ${userVaultsToResolve.length} of your vaults...`,
+        stage: `Resolving contract datums for ${userVaultsToResolve.length} of your vaults...`,
         itemType: "Vaults",
       });
 
       for (let i = 0; i < userVaultsToResolve.length; i++) {
         if (options?.abortSignal?.aborted) break;
         const uv = userVaultsToResolve[i];
-        const matchRaw = rawUtxos.find(
-          (r: any) => r.tx_hash === uv.utxoRef.txHash && r.output_index === uv.utxoRef.outputIndex
-        );
+        const matchRaw = rawUtxoByRef.get(`${uv.utxoRef.txHash}#${uv.utxoRef.outputIndex}`);
 
         if (matchRaw && matchRaw.data_hash) {
           try {
             const datumHex = await getOrFetchDatum(matchRaw.data_hash, async () => {
+              // 1. Direct Blockfrost CBOR endpoint
+              if (blockfrostApiKey) {
+                try {
+                  const resp = await fetch(
+                    `${constants.blockfrostUrl}/scripts/datum/${matchRaw.data_hash}/cbor`,
+                    { headers: { project_id: blockfrostApiKey } }
+                  );
+                  if (resp.ok) {
+                    const data = await resp.json();
+                    if (data?.cbor) return data.cbor;
+                  }
+                } catch {}
+              }
+              // 2. Fallback to Lucid provider
               return await lucid.config().provider.getDatum(matchRaw.data_hash);
             });
 
@@ -440,7 +503,9 @@ export async function fetchUserStakingVaults(
                     uv.isUnlocked = Date.now() >= uv.lockedUntilMs;
                   }
                 }
-              } catch {}
+              } catch (e) {
+                console.warn("Failed to parse datum CBOR:", e);
+              }
             }
           } catch (err) {
             console.warn("Failed to resolve user vault datum:", uv.utxoRef, err);
@@ -502,27 +567,44 @@ export async function unstakeVault(
   }
 
   // Resolve datum
-  const rawDatum = await lucid.datumOf(utxo);
+  let datumHex = vault.rawDatumHex;
+  if (!datumHex) {
+    const rawDatum = await lucid.datumOf(utxo);
+    datumHex = Data.to(rawDatum);
+  }
+
   const utxoWithDatum: UTxO = {
     ...utxo,
-    datum: Data.to(rawDatum),
+    datum: datumHex,
   };
 
-  const ownerPkh = vault.ownerPkh || String((rawDatum as any).fields?.[0] || "");
+  let ownerPkh = vault.ownerPkh;
+  if (!ownerPkh && datumHex) {
+    try {
+      const parsed = Data.from(datumHex) as any;
+      ownerPkh = String(parsed?.fields?.[0] || "");
+    } catch {}
+  }
 
   // Build unstaking transaction
   let tx = lucid
     .newTx()
     .collectFrom([utxoWithDatum], Data.void()) // Redeemer is () (unit)
-    .attach.SpendingValidator(STAKING_VALIDATOR)
-    .addSignerKey(ownerPkh); // Enforces signature from original staking address PKH
+    .attach.SpendingValidator(STAKING_VALIDATOR);
+
+  if (ownerPkh) {
+    tx = tx.addSignerKey(ownerPkh); // Enforces signature from original staking address PKH
+  }
 
   // If locked, ensure tx validity range starts at or after the unlock time
   if (vault.lockedUntilMs && vault.lockedUntilMs > Date.now()) {
     throw new Error(`Vault is locked until ${new Date(vault.lockedUntilMs).toLocaleString()}. Unstaking is not yet permitted.`);
   } else if (vault.lockedUntilMs) {
     tx = tx.validFrom(Math.max(Date.now() - 60_000, vault.lockedUntilMs));
+  } else {
+    tx = tx.validFrom(Date.now() - 60_000);
   }
+  tx = tx.validTo(Date.now() + 900_000); // 15 minute validity window
 
   const completedTx = await tx.complete();
   const signedTx = await completedTx.sign.withWallet().complete();
