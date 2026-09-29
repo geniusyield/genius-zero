@@ -677,7 +677,24 @@ export async function unstakeVault(
 
   const completedTx = await tx.complete();
   const signedTx = await completedTx.sign.withWallet().complete();
-  const txHash = await signedTx.submit();
+  const cbor = signedTx.toCBOR();
+
+  let txHash = "";
+  try {
+    // 1. Submit directly through Blockfrost provider (relayed straight to Cardano cardano-node)
+    txHash = await lucid.config().provider.submitTx(cbor);
+    console.log("Unstake tx successfully submitted via Blockfrost:", txHash);
+  } catch (providerErr: any) {
+    console.warn("Direct Blockfrost submission error, trying walletApi.submitTx:", providerErr);
+    // 2. Fallback to wallet's internal submit
+    txHash = await signedTx.submit();
+    console.log("Unstake tx submitted via walletApi:", txHash);
+  }
+
+  // Also submit to wallet so wallet internal activity ledger records it
+  try {
+    await signedTx.submit();
+  } catch {}
 
   return txHash;
 }
