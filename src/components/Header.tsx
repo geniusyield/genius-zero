@@ -7,6 +7,7 @@ import {
   Vault,
   Gift,
   ArrowUpDown,
+  Loader2,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { getTradingPairs } from "../config/dex";
@@ -224,6 +225,11 @@ export const Header: React.FC<HeaderProps> = ({
             >
               ×
             </button>
+          </div>
+        ) : wallet.connecting ? (
+          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-[#182234] border border-emerald-500/30 text-slate-300 text-xs md:text-sm font-medium">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+            <span>Connecting...</span>
           </div>
         ) : (
           <button

@@ -35,7 +35,7 @@ interface AppContextType {
   updateSettings: (newSettings: Partial<AppSettings>) => void;
   wallet: WalletState;
   availableWallets: AvailableWallet[];
-  connectWalletById: (walletId: string) => Promise<void>;
+  connectWalletById: (walletId: string, isAutoConnect?: boolean) => Promise<void>;
   disconnectWallet: () => void;
   activePair: TradingPair;
   setActivePair: (pair: TradingPair) => void;
@@ -55,6 +55,7 @@ interface AppContextType {
 }
 
 const SETTINGS_STORAGE_KEY = "genius_zero_settings";
+const CONNECTED_WALLET_STORAGE_KEY = "genius_zero_connected_wallet";
 
 const defaultSettings: AppSettings = {
   network: "mainnet",
@@ -155,13 +156,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     });
   };
 
-  // Check available CIP-30 wallets
+  // Check available CIP-30 wallets with immediate quick-poll for fast extension injections
   useEffect(() => {
     setAvailableWallets(getAvailableWallets());
+    const t1 = setTimeout(() => setAvailableWallets(getAvailableWallets()), 250);
+    const t2 = setTimeout(() => setAvailableWallets(getAvailableWallets()), 600);
+    const t3 = setTimeout(() => setAvailableWallets(getAvailableWallets()), 1200);
     const interval = setInterval(() => {
       setAvailableWallets(getAvailableWallets());
     }, 2000);
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearInterval(interval);
+    };
   }, []);
 
   // Initialize or reconfigure Lucid when apiKey or network changes
@@ -193,9 +202,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [settings.blockfrostApiKey, settings.network]);
 
   // Connect wallet
-  const connectWalletById = async (walletId: string) => {
+  const connectWalletById = async (walletId: string, isAutoConnect = false) => {
     if (!lucid) {
-      setError("Please configure your Blockfrost API key in Settings first.");
+      if (!isAutoConnect) {
+        setError("Please configure your Blockfrost API key in Settings first.");
+      }
       return;
     }
 
@@ -215,18 +226,139 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         tokenBalances: details.tokenBalances,
         error: null,
       });
+
+      try {
+        localStorage.setItem(CONNECTED_WALLET_STORAGE_KEY, walletId);
+      } catch {
+        // ignore
+      }
     } catch (err: any) {
+      console.warn(`Failed to connect wallet (${walletId}):`, err);
       setWallet((prev) => ({
         ...prev,
         connecting: false,
-        error: err?.message || "Failed to connect wallet",
+        error: isAutoConnect ? null : err?.message || "Failed to connect wallet",
       }));
     }
   };
 
   const disconnectWallet = () => {
+    try {
+      localStorage.removeItem(CONNECTED_WALLET_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
     setWallet(initialWalletState);
   };
+
+  // Auto-reconnect saved wallet on reload or when Lucid is reconfigured
+  const prevLucidRef = useRef<LucidEvolution | null>(null);
+  const autoConnectAttemptedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!lucid) {
+      prevLucidRef.current = null;
+      return;
+    }
+
+    const isNewLucid = prevLucidRef.current !== lucid;
+    prevLucidRef.current = lucid;
+
+    let savedWalletId: string | null = null;
+    try {
+      savedWalletId = localStorage.getItem(CONNECTED_WALLET_STORAGE_KEY);
+    } catch {
+      return;
+    }
+
+    if (!savedWalletId) return;
+
+    // If already connected with this exact lucid instance and wallet, skip
+    if (wallet.connected && wallet.walletName === savedWalletId && !isNewLucid) {
+      return;
+    }
+
+    // If connecting right now, skip
+    if (wallet.connecting) return;
+
+    if (isNewLucid) {
+      autoConnectAttemptedRef.current = null;
+    }
+
+    if (autoConnectAttemptedRef.current === savedWalletId && !isNewLucid) {
+      return;
+    }
+
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 20; // 20 * 150ms = 3.0s
+
+    const checkAndConnect = async () => {
+      if (cancelled) return;
+      const cardano = (window as any).cardano;
+      const targetWallet = cardano?.[savedWalletId!];
+
+      if (targetWallet) {
+        autoConnectAttemptedRef.current = savedWalletId;
+        try {
+          let isAuthorized = true;
+          if (typeof targetWallet.isEnabled === "function") {
+            try {
+              isAuthorized = await targetWallet.isEnabled();
+            } catch {
+              isAuthorized = true;
+            }
+          }
+
+          if (isAuthorized && !cancelled) {
+            await connectWalletById(savedWalletId!, true);
+          }
+        } catch (err) {
+          console.warn("Auto-reconnect error:", err);
+        }
+        return;
+      }
+
+      attempts++;
+      if (attempts < maxAttempts && !cancelled) {
+        setTimeout(checkAndConnect, 150);
+      }
+    };
+
+    checkAndConnect();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [lucid, wallet.connected, wallet.connecting, wallet.walletName]);
+
+  // Re-sync wallet on window focus if already connected (e.g. account switched in Eternl)
+  useEffect(() => {
+    const handleFocus = async () => {
+      if (!lucid || !wallet.connected || !wallet.walletName || wallet.connecting) return;
+      try {
+        const cardano = (window as any).cardano;
+        const target = cardano?.[wallet.walletName];
+        if (!target) return;
+        if (typeof target.isEnabled === "function") {
+          const enabled = await target.isEnabled();
+          if (!enabled) {
+            disconnectWallet();
+            return;
+          }
+        }
+        const currentAddr = await lucid.wallet().address();
+        if (currentAddr !== wallet.address) {
+          await connectWalletById(wallet.walletName, true);
+        }
+      } catch (err) {
+        console.warn("Focus wallet check warning:", err);
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [lucid, wallet.connected, wallet.walletName, wallet.address, wallet.connecting]);
 
   // Switch default pair when network changes
   useEffect(() => {
