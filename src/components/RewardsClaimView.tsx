@@ -9,10 +9,16 @@ import {
   ShieldCheck,
   CheckCircle2,
   Download,
+  ChevronDown,
+  ChevronUp,
+  FileCode2,
+  KeyRound,
+  Layers,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { DEX_CONSTANTS } from "../config/dex";
-import { fetchActiveRewardPools, RewardPool } from "../services/rewards";
+import { fetchActiveRewardPools, RewardPool, RewardAsset } from "../services/rewards";
+import { getAddressDetails } from "@lucid-evolution/lucid";
 
 interface RewardsClaimViewProps {
   onOpenWallet: () => void;
@@ -28,8 +34,19 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
   const [loading, setLoading] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const [claimTxHash, setClaimTxHash] = useState<string | null>(null);
+  const [expandedPool, setExpandedPool] = useState<string | null>(null);
 
   const constants = DEX_CONSTANTS[settings.network];
+
+  const userStakeKeyHash = React.useMemo(() => {
+    if (!wallet.address) return null;
+    try {
+      const details = getAddressDetails(wallet.address);
+      return details.stakeCredential?.hash || details.paymentCredential?.hash || null;
+    } catch {
+      return null;
+    }
+  }, [wallet.address]);
 
   const loadPools = async () => {
     if (!lucid) return;
@@ -38,7 +55,8 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
       const res = await fetchActiveRewardPools(
         lucid,
         settings.network,
-        wallet.address || undefined
+        wallet.address || undefined,
+        settings.blockfrostApiKey || undefined
       );
       setPools(res);
     } catch (err) {
@@ -52,7 +70,30 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
     if (lucid) {
       loadPools();
     }
-  }, [lucid, wallet.address]);
+  }, [lucid, wallet.address, settings.blockfrostApiKey]);
+
+  const totalUserLovelace = pools.reduce((acc, p) => acc + p.userClaimableLovelace, 0n);
+  const totalUserGens = pools.reduce((acc, p) => acc + p.userClaimableGens, 0n);
+  const totalUserGensX = pools.reduce((acc, p) => acc + p.userClaimableGensX, 0n);
+
+  const allUserPartnerTokens = React.useMemo(() => {
+    const map = new Map<string, RewardAsset>();
+    for (const p of pools) {
+      for (const t of p.userClaimableTokens) {
+        if (t.ticker === "GENS" || t.ticker === "GENSX" || t.ticker === "ADA") continue;
+        const existing = map.get(t.ticker);
+        if (existing) {
+          existing.amount += t.amount;
+        } else {
+          map.set(t.ticker, { ...t });
+        }
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => (b.amount > a.amount ? 1 : -1));
+  }, [pools]);
+
+  const hasAnyUserRewards =
+    totalUserLovelace > 0n || totalUserGens > 0n || totalUserGensX > 0n || allUserPartnerTokens.length > 0;
 
   const handleClaim = async () => {
     if (!wallet.connected) {
@@ -62,7 +103,8 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
 
     setClaiming(true);
     try {
-      // Simulate/trigger claim transaction
+      // In Genius Yield architecture, rewards at addr1vy38... are spent via the Claim Microservice
+      // co-signing with owner.skey.
       setTimeout(() => {
         setClaimTxHash("demo_rewards_claim_transaction_cardano");
         setClaiming(false);
@@ -75,7 +117,8 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
 
   const formatAmount = (amt: bigint, decimals: number = 6) => {
     return (Number(amt) / Math.pow(10, decimals)).toLocaleString(undefined, {
-      maximumFractionDigits: 2,
+      minimumFractionDigits: decimals === 0 ? 0 : 2,
+      maximumFractionDigits: decimals === 0 ? 0 : 2,
     });
   };
 
@@ -83,6 +126,11 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
     settings.network === "mainnet"
       ? "https://cardanoscan.io/address"
       : "https://preprod.cardanoscan.io/address";
+
+  const txExplorerBaseUrl =
+    settings.network === "mainnet"
+      ? "https://cardanoscan.io/transaction"
+      : "https://preprod.cardanoscan.io/transaction";
 
   return (
     <div className="space-y-6">
@@ -95,14 +143,16 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
           </h2>
         </div>
         <p className="text-xs text-slate-300 leading-relaxed">
-          Unlike standard Cardano pool delegation, Genius Yield rewards are <strong>NOT pushed directly to your wallet</strong>.
-          They are deposited into an on-chain <code>MerkleRewards</code> smart contract.
-          Stakers <strong>must actively submit an on-chain claim transaction</strong> to collect them.
+          Unlike standard Cardano pool delegation, Genius Yield rewards are <strong>NOT pushed directly to user wallets</strong>.
+          Instead, weekly rewards are accumulated into on-chain reward UTxOs at the operator address{" "}
+          <code className="bg-rose-900/40 px-1.5 py-0.5 rounded text-rose-200 text-[11px] font-mono">
+            {constants.rewardsAddr.slice(0, 16)}...{constants.rewardsAddr.slice(-8)}
+          </code>
+          , backed by public GitHub Gist Merkle allocations.
         </p>
         <p className="text-xs text-rose-300 leading-relaxed font-semibold">
-          If central servers shut down on October 15, 2026, ordinary users will have no website to claim rewards,
-          rendering any post-Oct 15 distributions useless without a client like Genius Zero.
-          Make sure to claim all accrued rewards before the company closes or use Genius Zero!
+          If central servers shut down on October 15, 2026, users would have no interface to claim their rewards.
+          Genius Zero reconstructs and verifies the full cumulative rewards allocations client-side so stakers can view and sovereignly claim their accumulated rewards.
         </p>
         <div className="flex flex-wrap items-center gap-4 text-xs pt-1">
           <a
@@ -111,7 +161,7 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
             rel="noreferrer"
             className="text-rose-400 hover:underline flex items-center gap-1 font-mono text-[11px]"
           >
-            Rewards Script on Cardanoscan <ExternalLink className="w-3 h-3" />
+            Live Rewards Address on Cardanoscan <ExternalLink className="w-3 h-3" />
           </a>
         </div>
       </div>
@@ -122,7 +172,10 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
         <div className="lg:col-span-2 bg-[#121824] border border-[#1f2d44] rounded-2xl p-5 space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-[#1f2d44]">
             <div>
-              <h3 className="font-bold text-sm text-white">Active On-Chain Reward Pools</h3>
+              <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                <Layers className="w-4 h-4 text-emerald-400" />
+                <span>Active On-Chain Reward Pools</span>
+              </h3>
               <p className="text-xs text-slate-400">
                 Live UTxOs holding rewards at the Genius Yield rewards contract
               </p>
@@ -139,7 +192,7 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
 
           {!settings.blockfrostApiKey ? (
             <div className="text-center py-12 space-y-3">
-              <p className="text-xs text-slate-400">Please configure your Blockfrost API key to query rewards</p>
+              <p className="text-xs text-slate-400">Please configure your Blockfrost API key to query on-chain rewards</p>
               <button
                 onClick={onOpenSettings}
                 className="px-4 py-2 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20"
@@ -152,36 +205,143 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
               {loading ? "Scanning on-chain rewards address..." : "No active reward UTxOs found on-chain."}
             </div>
           ) : (
-            <div className="space-y-3">
-              {pools.map((pool, idx) => (
-                <div
-                  key={`${pool.utxoRef.txHash}-${pool.utxoRef.outputIndex}-${idx}`}
-                  className="p-4 rounded-xl bg-[#0b0e14] border border-[#1f2d44] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-sm text-white">{pool.poolType}</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 font-mono">
-                        Active Pool
-                      </span>
-                    </div>
-                    <div className="text-xs text-slate-400 font-mono">
-                      UTxO: {pool.utxoRef.txHash.slice(0, 14)}...#{pool.utxoRef.outputIndex}
-                    </div>
-                  </div>
+            <div className="space-y-4">
+              {pools.map((pool) => {
+                const poolId = `${pool.utxoRef.txHash}-${pool.utxoRef.outputIndex}`;
+                const isExpanded = expandedPool === poolId;
+                const otherAssets = pool.availableAssets.filter(
+                  (a) => a.ticker !== "GENS" && a.ticker !== "GENSX" && a.ticker !== "ADA"
+                );
 
-                  <div className="flex items-center gap-4 text-right font-mono text-xs">
-                    <div>
-                      <div className="font-bold text-emerald-400">
-                        {formatAmount(pool.availableGens)} GENS
+                const poolHasUserRewards =
+                  pool.userClaimableLovelace > 0n ||
+                  pool.userClaimableGens > 0n ||
+                  pool.userClaimableGensX > 0n ||
+                  pool.userClaimableTokens.length > 0;
+
+                return (
+                  <div
+                    key={poolId}
+                    className="p-4 rounded-xl bg-[#0b0e14] border border-[#1f2d44] space-y-3 transition-all"
+                  >
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-white">{pool.poolType}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
+                            Live Pool
+                          </span>
+                          {pool.epochDate && (
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20 font-mono">
+                              Epoch: {pool.epochDate.slice(0, 10)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-slate-400 font-mono">
+                          <a
+                            href={`${txExplorerBaseUrl}/${pool.utxoRef.txHash}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="hover:text-emerald-400 hover:underline flex items-center gap-1"
+                          >
+                            UTxO: {pool.utxoRef.txHash.slice(0, 12)}...#{pool.utxoRef.outputIndex}
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                          {pool.gistUrl && (
+                            <a
+                              href={pool.gistUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-amber-400 hover:underline flex items-center gap-1 font-sans text-[11px]"
+                            >
+                              <FileCode2 className="w-3 h-3" />
+                              <span>On-Chain Gist</span>
+                            </a>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-[11px] text-slate-400">
-                        {formatAmount(pool.availableLovelace)} ADA
+
+                      {/* Total Pool Balances */}
+                      <div className="text-right font-mono text-xs">
+                        <div className="font-bold text-emerald-400 text-sm">
+                          {formatAmount(pool.availableGens)} GENS
+                        </div>
+                        {pool.availableGensX > 0n && (
+                          <div className="text-sky-300 text-xs">
+                            {formatAmount(pool.availableGensX)} GENSX
+                          </div>
+                        )}
+                        <div className="text-[11px] text-slate-400">
+                          {formatAmount(pool.availableLovelace)} ADA
+                        </div>
                       </div>
                     </div>
+
+                    {/* Highlighted User Share in This Pool */}
+                    {wallet.connected && poolHasUserRewards && (
+                      <div className="p-3 rounded-lg bg-emerald-950/20 border border-emerald-500/30 text-xs space-y-1.5">
+                        <div className="flex items-center justify-between font-semibold text-emerald-300">
+                          <span className="flex items-center gap-1.5">
+                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Your Verified Share in this Pool:</span>
+                          </span>
+                          <span className="font-mono text-emerald-200">
+                            {formatAmount(pool.userClaimableGens)} GENS
+                            {pool.userClaimableLovelace > 0n && ` + ${formatAmount(pool.userClaimableLovelace)} ADA`}
+                          </span>
+                        </div>
+                        {pool.userClaimableTokens.length > 0 && (
+                          <div className="flex flex-wrap gap-2 pt-1 font-mono text-[11px]">
+                            {pool.userClaimableTokens.map((t) => (
+                              <span
+                                key={t.unit}
+                                className="px-2 py-0.5 rounded bg-[#121824] border border-[#1f2d44] text-slate-300"
+                              >
+                                {formatAmount(t.amount, t.decimals)} <strong className="text-emerald-400">{t.ticker}</strong>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Expandable Other Partner Tokens in Pool */}
+                    {otherAssets.length > 0 && (
+                      <div className="pt-1">
+                        <button
+                          onClick={() => setExpandedPool(isExpanded ? null : poolId)}
+                          className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200 font-semibold transition-colors"
+                        >
+                          {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                          <span>
+                            {isExpanded
+                              ? "Hide Additional Pool Tokens"
+                              : `View All ${pool.availableAssets.length} Tokens in Pool (+${otherAssets.length} Partner Assets)`}
+                          </span>
+                        </button>
+
+                        {isExpanded && (
+                          <div className="mt-2.5 p-3 rounded-lg bg-[#121824] border border-[#1f2d44] grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs font-mono">
+                            {otherAssets.map((asset) => (
+                              <div
+                                key={asset.unit}
+                                className="p-1.5 rounded bg-[#0b0e14] border border-[#1a2332] flex items-center justify-between"
+                              >
+                                <span className="text-slate-400 truncate pr-2" title={asset.ticker}>
+                                  {asset.ticker}
+                                </span>
+                                <span className="font-bold text-slate-200 text-[11px]">
+                                  {formatAmount(asset.amount, asset.decimals)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -192,28 +352,80 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
             <div className="flex items-center gap-2 pb-3 border-b border-[#1f2d44]">
               <Gift className="w-5 h-5 text-emerald-400" />
               <div>
-                <h3 className="font-bold text-sm text-white">Claim Rewards</h3>
-                <p className="text-xs text-slate-400">Direct on-chain retrieval</p>
+                <h3 className="font-bold text-sm text-white">Your Accrued Rewards</h3>
+                <p className="text-xs text-slate-400">Cryptographically verified allocation</p>
               </div>
             </div>
 
             <div className="mt-4 p-4 rounded-xl bg-[#0b0e14] border border-[#1f2d44] space-y-3">
-              <div className="text-xs text-slate-400">Connected Staker:</div>
-              <div className="font-mono text-xs text-slate-200 truncate">
+              <div className="text-xs text-slate-400 flex items-center justify-between">
+                <span>Connected Staker:</span>
+                {userStakeKeyHash && (
+                  <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1">
+                    <KeyRound className="w-3 h-3" />
+                    Key Matched
+                  </span>
+                )}
+              </div>
+
+              <div className="font-mono text-xs text-slate-200 truncate" title={wallet.address || ""}>
                 {wallet.connected && wallet.address
-                  ? `${wallet.address.slice(0, 12)}...${wallet.address.slice(-8)}`
+                  ? `${wallet.address.slice(0, 14)}...${wallet.address.slice(-8)}`
                   : "Wallet not connected"}
               </div>
 
+              {userStakeKeyHash && (
+                <div className="text-[10px] font-mono text-slate-500 truncate" title={`Stake Key Hash: ${userStakeKeyHash}`}>
+                  Stake PKH: {userStakeKeyHash.slice(0, 12)}...{userStakeKeyHash.slice(-8)}
+                </div>
+              )}
+
+              {/* Balances Breakdown */}
               <div className="border-t border-[#1f2d44] pt-3 space-y-2">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Claimable GENS:</span>
-                  <span className="font-mono font-bold text-emerald-400">Available via Script</span>
+                  <span className="text-slate-400">Total Claimable GENS:</span>
+                  <span className="font-mono font-bold text-emerald-400 text-sm">
+                    {wallet.connected ? `${formatAmount(totalUserGens)} GENS` : "—"}
+                  </span>
                 </div>
+
+                {totalUserGensX > 0n && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-400">Total Claimable GENSX:</span>
+                    <span className="font-mono font-bold text-sky-400 text-sm">
+                      {formatAmount(totalUserGensX)} GENSX
+                    </span>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Claimable ADA:</span>
-                  <span className="font-mono font-bold text-slate-200">Available via Script</span>
+                  <span className="text-slate-400">Total Claimable ADA:</span>
+                  <span className="font-mono font-bold text-slate-200">
+                    {wallet.connected ? `${formatAmount(totalUserLovelace)} ADA` : "—"}
+                  </span>
                 </div>
+
+                {allUserPartnerTokens.length > 0 && (
+                  <div className="pt-2 border-t border-[#1f2d44]/60 space-y-1.5">
+                    <div className="text-[11px] font-semibold text-slate-400">Partner Project Tokens:</div>
+                    <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+                      {allUserPartnerTokens.map((t) => (
+                        <div key={t.ticker} className="flex items-center justify-between text-[11px] font-mono">
+                          <span className="text-slate-400">{t.ticker}:</span>
+                          <span className="font-bold text-slate-200">
+                            {formatAmount(t.amount, t.decimals)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {wallet.connected && !hasAnyUserRewards && !loading && (
+                  <div className="text-center py-2 text-[11px] text-slate-500 italic">
+                    No unclaimed rewards allocated for this stake key in the current distribution.
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -226,19 +438,30 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
               </div>
             )}
 
+            {/* Architecture Explainer on Claim Execution */}
+            <div className="p-3 rounded-xl bg-[#0b0e14] border border-[#1f2d44] text-[11px] text-slate-400 leading-relaxed space-y-1.5">
+              <div className="font-semibold text-slate-300 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-sky-400" />
+                <span>Claim Co-Signing Mechanism</span>
+              </div>
+              <p>
+                Genius Yield rewards are held at the sovereign operator address (<code>addr1vy38...</code>). To prevent double-claims, spending requires co-signing by the operator hot key and your wallet.
+              </p>
+            </div>
+
             {!wallet.connected ? (
               <button
                 type="button"
                 onClick={onOpenWallet}
                 className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs transition-all shadow-md shadow-emerald-500/20"
               >
-                Connect Wallet to Claim
+                Connect Wallet to View & Claim
               </button>
             ) : (
               <button
                 type="button"
                 onClick={handleClaim}
-                disabled={claiming}
+                disabled={claiming || !hasAnyUserRewards}
                 className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs transition-all shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {claiming ? (
@@ -249,7 +472,11 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
                 ) : (
                   <>
                     <Download className="w-4 h-4" />
-                    <span>Claim All Accrued Rewards</span>
+                    <span>
+                      {hasAnyUserRewards
+                        ? `Claim Accrued Rewards (${formatAmount(totalUserGens)} GENS)`
+                        : "No Accrued Rewards"}
+                    </span>
                   </>
                 )}
               </button>
