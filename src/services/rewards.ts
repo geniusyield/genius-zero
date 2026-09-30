@@ -355,11 +355,18 @@ export interface ClaimRewardsParams {
   blockfrostApiKey?: string;
 }
 
-export async function executeClaimRewards(params: ClaimRewardsParams): Promise<{ txHash: string }> {
+export interface PrepareClaimParams {
+  network: NetworkType;
+  stakeAddress: string;
+  userAddresses: string[];
+  changeAddress: string;
+  claimServiceUrl?: string;
+}
+
+export async function prepareClaimTransaction(params: PrepareClaimParams): Promise<{ cbor: string; txId: string }> {
   const constants = DEX_CONSTANTS[params.network];
   const serviceUrl = params.claimServiceUrl || constants.claimServiceUrl;
 
-  // 1. Request signed claim transaction from the microservice
   const response = await fetch(`${serviceUrl}/api/v1/claim`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -381,19 +388,31 @@ export async function executeClaimRewards(params: ClaimRewardsParams): Promise<{
     throw new Error("Invalid response from claim microservice: missing transaction CBOR");
   }
 
-  // 2. Request user signature witness via CIP-30 wallet
-  // partialSign = true because the transaction is already co-signed by the rewards owner key
-  const userWitnessCbor = await params.walletApi.signTx(crespTxCbor, true);
+  return { cbor: crespTxCbor, txId: data.crespTxId };
+}
 
-  // 3. Assemble the transaction: merge the user's witness into the co-signed transaction
-  const tx = CML.Transaction.from_cbor_hex(crespTxCbor);
+export interface SignAndSubmitClaimParams {
+  network: NetworkType;
+  walletApi: any;
+  txCbor: string;
+  blockfrostApiKey?: string;
+}
+
+export async function signAndSubmitClaimTransaction(params: SignAndSubmitClaimParams): Promise<{ txHash: string }> {
+  const constants = DEX_CONSTANTS[params.network];
+
+  // 1. Request user signature witness via CIP-30 wallet
+  const userWitnessCbor = await params.walletApi.signTx(params.txCbor, true);
+
+  // 2. Assemble the transaction: merge the user's witness into the co-signed transaction
+  const tx = CML.Transaction.from_cbor_hex(params.txCbor);
   const userWitnessSet = CML.TransactionWitnessSet.from_cbor_hex(userWitnessCbor);
   const witnessSet = tx.witness_set();
   witnessSet.add_all_witnesses(userWitnessSet);
   const finalTx = CML.Transaction.new(tx.body(), witnessSet, tx.is_valid(), tx.auxiliary_data());
   const finalTxCbor = finalTx.to_cbor_hex();
 
-  // 4. Submit transaction to Cardano network
+  // 3. Submit transaction to Cardano network
   let txHash: string;
   try {
     txHash = await params.walletApi.submitTx(finalTxCbor);
@@ -418,5 +437,32 @@ export async function executeClaimRewards(params: ClaimRewardsParams): Promise<{
   }
 
   return { txHash };
+}
+
+export interface ClaimRewardsParams {
+  network: NetworkType;
+  walletApi: any;
+  stakeAddress: string;
+  userAddresses: string[];
+  changeAddress: string;
+  claimServiceUrl?: string;
+  blockfrostApiKey?: string;
+}
+
+export async function executeClaimRewards(params: ClaimRewardsParams): Promise<{ txHash: string }> {
+  const prepared = await prepareClaimTransaction({
+    network: params.network,
+    stakeAddress: params.stakeAddress,
+    userAddresses: params.userAddresses,
+    changeAddress: params.changeAddress,
+    claimServiceUrl: params.claimServiceUrl,
+  });
+
+  return signAndSubmitClaimTransaction({
+    network: params.network,
+    walletApi: params.walletApi,
+    txCbor: prepared.cbor,
+    blockfrostApiKey: params.blockfrostApiKey,
+  });
 }
 

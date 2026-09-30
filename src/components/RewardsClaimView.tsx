@@ -17,7 +17,13 @@ import {
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { DEX_CONSTANTS } from "../config/dex";
-import { fetchActiveRewardPools, executeClaimRewards, RewardPool, RewardAsset } from "../services/rewards";
+import {
+  fetchActiveRewardPools,
+  prepareClaimTransaction,
+  signAndSubmitClaimTransaction,
+  RewardPool,
+  RewardAsset,
+} from "../services/rewards";
 import { getAddressDetails, credentialToRewardAddress } from "@lucid-evolution/lucid";
 
 interface RewardsClaimViewProps {
@@ -32,7 +38,10 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
   const { wallet, settings, lucid } = useApp();
   const [pools, setPools] = useState<RewardPool[]>([]);
   const [loading, setLoading] = useState(false);
-  const [claiming, setClaiming] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  const [preparedTx, setPreparedTx] = useState<{ cbor: string; txId: string } | null>(null);
+  const [signing, setSigning] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [claimTxHash, setClaimTxHash] = useState<string | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
   const [expandedPool, setExpandedPool] = useState<string | null>(null);
@@ -96,13 +105,28 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
   const hasAnyUserRewards =
     totalUserLovelace > 0n || totalUserGens > 0n || totalUserGensX > 0n || allUserPartnerTokens.length > 0;
 
-  const handleClaim = async () => {
+  // Timer effect when preparing
+  useEffect(() => {
+    let interval: any;
+    if (preparing) {
+      setElapsedSeconds(0);
+      interval = setInterval(() => {
+        setElapsedSeconds((s) => s + 1);
+      }, 1000);
+    } else {
+      setElapsedSeconds(0);
+    }
+    return () => clearInterval(interval);
+  }, [preparing]);
+
+  const handlePrepareClaim = async () => {
     if (!wallet.connected || !wallet.address || !wallet.walletName) {
       onOpenWallet();
       return;
     }
 
-    setClaiming(true);
+    setPreparing(true);
+    setPreparedTx(null);
     setClaimError(null);
     setClaimTxHash(null);
     try {
@@ -116,33 +140,56 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
         throw new Error("Could not determine stake address from connected wallet.");
       }
 
+      const usedAddrs =
+        wallet.usedAddresses && wallet.usedAddresses.length > 0
+          ? wallet.usedAddresses
+          : [wallet.address];
+
+      const res = await prepareClaimTransaction({
+        network: settings.network,
+        stakeAddress: stakeAddr,
+        userAddresses: usedAddrs,
+        changeAddress: wallet.address,
+        claimServiceUrl: constants.claimServiceUrl,
+      });
+
+      setPreparedTx(res);
+    } catch (err: any) {
+      console.error("Prepare claim error:", err);
+      setClaimError(err.message || String(err));
+    } finally {
+      setPreparing(false);
+    }
+  };
+
+  const handleSignAndSubmit = async () => {
+    if (!preparedTx || !wallet.walletName) return;
+
+    setSigning(true);
+    setClaimError(null);
+    try {
       if (typeof window === "undefined" || !(window as any).cardano?.[wallet.walletName]) {
         throw new Error(`Wallet ${wallet.walletName} is not accessible in browser.`);
       }
 
       const walletApi = await (window as any).cardano[wallet.walletName].enable();
-      const usedAddrs = wallet.usedAddresses && wallet.usedAddresses.length > 0
-        ? wallet.usedAddresses
-        : [wallet.address];
-
-      const res = await executeClaimRewards({
+      const res = await signAndSubmitClaimTransaction({
         network: settings.network,
         walletApi,
-        stakeAddress: stakeAddr,
-        userAddresses: usedAddrs,
-        changeAddress: wallet.address,
+        txCbor: preparedTx.cbor,
         blockfrostApiKey: settings.blockfrostApiKey || undefined,
       });
 
       setClaimTxHash(res.txHash);
+      setPreparedTx(null);
       setTimeout(() => {
         loadPools();
       }, 10000);
     } catch (err: any) {
-      console.error("Claim error:", err);
+      console.error("Signing error:", err);
       setClaimError(err.message || String(err));
     } finally {
-      setClaiming(false);
+      setSigning(false);
     }
   };
 
@@ -514,17 +561,49 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
               >
                 Connect Wallet to View & Claim
               </button>
+            ) : preparedTx ? (
+              <div className="space-y-2">
+                <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-xs text-emerald-300 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 font-semibold">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>Transaction Co-Signed by Operator!</span>
+                  </span>
+                  <span className="font-mono text-[11px] text-slate-400">
+                    Tx: {preparedTx.txId.slice(0, 10)}...
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSignAndSubmit}
+                  disabled={signing}
+                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-extrabold text-xs transition-all shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 animate-pulse disabled:opacity-50 disabled:animate-none"
+                >
+                  {signing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Submitting to Cardano Network...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Sign in Wallet ({wallet.walletName || "Eternl"}) & Complete Claim</span>
+                    </>
+                  )}
+                </button>
+              </div>
             ) : (
               <button
                 type="button"
-                onClick={handleClaim}
-                disabled={claiming || !hasAnyUserRewards}
+                onClick={handlePrepareClaim}
+                disabled={preparing || !hasAnyUserRewards}
                 className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs transition-all shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                {claiming ? (
+                {preparing ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Preparing Claim Transaction...</span>
+                    <span>
+                      Evaluating Plutus Scripts & Co-Signing... ({elapsedSeconds}s)
+                    </span>
                   </>
                 ) : (
                   <>
