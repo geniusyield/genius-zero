@@ -26,6 +26,11 @@ export interface RewardPool {
   userClaimableGens: bigint;
   userClaimableGensX: bigint;
   userClaimableTokens: RewardAsset[];
+  userClaimed?: boolean;
+  userClaimedLovelace?: bigint;
+  userClaimedGens?: bigint;
+  userClaimedGensX?: bigint;
+  userClaimedTokens?: RewardAsset[];
 }
 
 export interface UserRewardsSummary {
@@ -278,29 +283,89 @@ export async function fetchActiveRewardPools(
       return b.amount > a.amount ? 1 : -1;
     });
 
-    // Lookup user's claimable rewards from snapshot
+    // Check if user has already withdrawn rewards from this pool
+    let userClaimed = false;
+
+    // 1. Check local session storage first
+    if (userSkh) {
+      try {
+        const localKey = `genius_zero_claimed_${userSkh.toLowerCase()}_${utxo.txHash}#${utxo.outputIndex}`;
+        const localKeyEpoch = epochDate ? `genius_zero_claimed_${userSkh.toLowerCase()}_${poolType}_${epochDate}` : null;
+        if (localStorage.getItem(localKey) || (localKeyEpoch && localStorage.getItem(localKeyEpoch))) {
+          userClaimed = true;
+        }
+      } catch {}
+    }
+
+    // 2. Traverse on-chain datum chain to detect if user has withdrawn
+    if (!userClaimed && userSkh && utxo.datumHash && blockfrostApiKey) {
+      let curDatumHash: string | null = utxo.datumHash;
+      let depth = 0;
+      while (curDatumHash && depth < 20) {
+        depth++;
+        try {
+          const dRes = await fetch(`${constants.blockfrostUrl}/scripts/datum/${curDatumHash}`, {
+            headers: { project_id: blockfrostApiKey },
+          });
+          if (!dRes.ok) break;
+          const dJson = await dRes.json();
+          const dFields = dJson?.json_value?.fields;
+          if (!dFields || dFields.length < 4) break;
+
+          const lastAction = dFields[3];
+          if (lastAction?.constructor === 1 && lastAction?.fields?.[0]?.bytes) {
+            const withdrawnPkh = lastAction.fields[0].bytes.toLowerCase();
+            if (withdrawnPkh === userSkh.toLowerCase()) {
+              userClaimed = true;
+              break;
+            }
+          }
+
+          const prevField = dFields[1];
+          if (prevField?.fields?.[0]?.bytes) {
+            curDatumHash = prevField.fields[0].bytes;
+          } else {
+            curDatumHash = null;
+          }
+        } catch {
+          break;
+        }
+      }
+    }
+
+    // Lookup user's rewards allocation from snapshot
     let userClaimableLovelace = 0n;
     let userClaimableGens = 0n;
     let userClaimableGensX = 0n;
     const userClaimableTokens: RewardAsset[] = [];
 
+    let userClaimedLovelace = 0n;
+    let userClaimedGens = 0n;
+    let userClaimedGensX = 0n;
+    const userClaimedTokens: RewardAsset[] = [];
+
     const snapshot = poolType === "Vault Staking" ? vsSnapshot : aySnapshot;
     if (snapshot && userSkh && snapshot.rewards[userSkh]) {
       const userAlloc = snapshot.rewards[userSkh];
+      const parsedTokens: RewardAsset[] = [];
+      let parsedLovelace = 0n;
+      let parsedGens = 0n;
+      let parsedGensX = 0n;
+
       for (const [rawUnit, amtNum] of Object.entries(userAlloc)) {
         const amt = BigInt(Math.floor(amtNum));
         if (amt <= 0n) continue;
 
         if (rawUnit === "lovelace") {
-          userClaimableLovelace += amt;
+          parsedLovelace += amt;
         } else {
           const meta = resolveTokenMeta(rawUnit);
           if (meta.ticker === "GENS") {
-            userClaimableGens += amt;
+            parsedGens += amt;
           } else if (meta.ticker === "GENSX") {
-            userClaimableGensX += amt;
+            parsedGensX += amt;
           }
-          userClaimableTokens.push({
+          parsedTokens.push({
             unit: rawUnit,
             ticker: meta.ticker,
             amount: amt,
@@ -310,13 +375,35 @@ export async function fetchActiveRewardPools(
       }
 
       // Sort user tokens: GENS, GENSX, ADA first, then highest amount
-      userClaimableTokens.sort((a, b) => {
+      parsedTokens.sort((a, b) => {
         const priorityOrder: Record<string, number> = { GENS: 1, GENSX: 2, ADA: 3 };
         const prioA = priorityOrder[a.ticker] || 99;
         const prioB = priorityOrder[b.ticker] || 99;
         if (prioA !== prioB) return prioA - prioB;
         return b.amount > a.amount ? 1 : -1;
       });
+
+      if (userClaimed) {
+        userClaimedLovelace = parsedLovelace;
+        userClaimedGens = parsedGens;
+        userClaimedGensX = parsedGensX;
+        userClaimedTokens.push(...parsedTokens);
+      } else {
+        userClaimableLovelace = parsedLovelace;
+        userClaimableGens = parsedGens;
+        userClaimableGensX = parsedGensX;
+        userClaimableTokens.push(...parsedTokens);
+      }
+    }
+
+    if (userClaimed && userSkh) {
+      try {
+        const localKey = `genius_zero_claimed_${userSkh.toLowerCase()}_${utxo.txHash}#${utxo.outputIndex}`;
+        localStorage.setItem(localKey, "true");
+        if (epochDate) {
+          localStorage.setItem(`genius_zero_claimed_${userSkh.toLowerCase()}_${poolType}_${epochDate}`, "true");
+        }
+      } catch {}
     }
 
     pools.push({
@@ -336,6 +423,11 @@ export async function fetchActiveRewardPools(
       userClaimableGens,
       userClaimableGensX,
       userClaimableTokens,
+      userClaimed,
+      userClaimedLovelace,
+      userClaimedGens,
+      userClaimedGensX,
+      userClaimedTokens,
     });
   }
 

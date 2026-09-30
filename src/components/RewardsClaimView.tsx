@@ -105,6 +105,31 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
   const hasAnyUserRewards =
     totalUserLovelace > 0n || totalUserGens > 0n || totalUserGensX > 0n || allUserPartnerTokens.length > 0;
 
+  const totalClaimedLovelace = pools.reduce((acc, p) => acc + (p.userClaimedLovelace || 0n), 0n);
+  const totalClaimedGens = pools.reduce((acc, p) => acc + (p.userClaimedGens || 0n), 0n);
+  const totalClaimedGensX = pools.reduce((acc, p) => acc + (p.userClaimedGensX || 0n), 0n);
+
+  const allClaimedPartnerTokens = React.useMemo(() => {
+    const map = new Map<string, RewardAsset>();
+    for (const p of pools) {
+      for (const t of p.userClaimedTokens || []) {
+        if (t.ticker === "GENS" || t.ticker === "GENSX" || t.ticker === "ADA") continue;
+        const existing = map.get(t.ticker);
+        if (existing) {
+          existing.amount += t.amount;
+        } else {
+          map.set(t.ticker, { ...t });
+        }
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => (b.amount > a.amount ? 1 : -1));
+  }, [pools]);
+
+  const hasAnyClaimedRewards =
+    totalClaimedLovelace > 0n || totalClaimedGens > 0n || totalClaimedGensX > 0n || allClaimedPartnerTokens.length > 0;
+  const isAnyPoolClaimed = pools.some((p) => p.userClaimed);
+  const isAllClaimed = (isAnyPoolClaimed || hasAnyClaimedRewards) && !hasAnyUserRewards;
+
   // Timer effect when preparing
   useEffect(() => {
     let interval: any;
@@ -182,6 +207,47 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
 
       setClaimTxHash(res.txHash);
       setPreparedTx(null);
+
+      // Record claim in localStorage and update state immediately
+      if (userStakeKeyHash) {
+        pools.forEach((p) => {
+          if (p.userClaimableGens > 0n || p.userClaimableLovelace > 0n || p.userClaimableTokens.length > 0) {
+            try {
+              localStorage.setItem(
+                `genius_zero_claimed_${userStakeKeyHash.toLowerCase()}_${p.utxoRef.txHash}#${p.utxoRef.outputIndex}`,
+                res.txHash
+              );
+              if (p.epochDate) {
+                localStorage.setItem(
+                  `genius_zero_claimed_${userStakeKeyHash.toLowerCase()}_${p.poolType}_${p.epochDate}`,
+                  res.txHash
+                );
+              }
+            } catch {}
+          }
+        });
+      }
+
+      setPools((prev) =>
+        prev.map((p) => {
+          if (p.userClaimableGens > 0n || p.userClaimableLovelace > 0n || p.userClaimableTokens.length > 0) {
+            return {
+              ...p,
+              userClaimed: true,
+              userClaimedGens: p.userClaimableGens,
+              userClaimedGensX: p.userClaimableGensX,
+              userClaimedLovelace: p.userClaimableLovelace,
+              userClaimedTokens: p.userClaimableTokens,
+              userClaimableGens: 0n,
+              userClaimableGensX: 0n,
+              userClaimableLovelace: 0n,
+              userClaimableTokens: [],
+            };
+          }
+          return p;
+        })
+      );
+
       setTimeout(() => {
         loadPools();
       }, 10000);
@@ -356,7 +422,40 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
                     </div>
 
                     {/* Highlighted User Share in This Pool */}
-                    {wallet.connected && poolHasUserRewards && (
+                    {wallet.connected && pool.userClaimed ? (
+                      <div className="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-500/40 text-xs space-y-2">
+                        <div className="flex items-center justify-between font-semibold text-emerald-300">
+                          <span className="flex items-center gap-1.5">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                            <span>Rewards Claimed!</span>
+                          </span>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
+                            Successfully Withdrawn On-Chain
+                          </span>
+                        </div>
+                        {((pool.userClaimedGens || 0n) > 0n || (pool.userClaimedLovelace || 0n) > 0n) && (
+                          <div className="flex items-center justify-between text-slate-300 font-mono text-[11px] pt-0.5">
+                            <span>Withdrawn Allocation:</span>
+                            <span className="font-bold text-emerald-300">
+                              {formatAmount(pool.userClaimedGens || 0n)} GENS
+                              {(pool.userClaimedLovelace || 0n) > 0n && ` + ${formatAmount(pool.userClaimedLovelace || 0n)} ADA`}
+                            </span>
+                          </div>
+                        )}
+                        {(pool.userClaimedTokens || []).length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 pt-1 font-mono text-[10px]">
+                            {pool.userClaimedTokens!.map((t) => (
+                              <span
+                                key={t.unit}
+                                className="px-2 py-0.5 rounded bg-[#121824] border border-emerald-500/30 text-emerald-200"
+                              >
+                                {formatAmount(t.amount, t.decimals)} <strong className="text-emerald-400">{t.ticker}</strong>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : wallet.connected && poolHasUserRewards ? (
                       <div className="p-3 rounded-lg bg-emerald-950/20 border border-emerald-500/30 text-xs space-y-1.5">
                         <div className="flex items-center justify-between font-semibold text-emerald-300">
                           <span className="flex items-center gap-1.5">
@@ -381,7 +480,7 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
                           </div>
                         )}
                       </div>
-                    )}
+                    ) : null}
 
                     {/* Expandable Other Partner Tokens in Pool */}
                     {otherAssets.length > 0 && (
@@ -460,49 +559,104 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
 
               {/* Balances Breakdown */}
               <div className="border-t border-[#1f2d44] pt-3 space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Total Claimable GENS:</span>
-                  <span className="font-mono font-bold text-emerald-400 text-sm">
-                    {wallet.connected ? `${formatAmount(totalUserGens)} GENS` : "—"}
-                  </span>
-                </div>
-
-                {totalUserGensX > 0n && (
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400">Total Claimable GENSX:</span>
-                    <span className="font-mono font-bold text-sky-400 text-sm">
-                      {formatAmount(totalUserGensX)} GENSX
-                    </span>
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Total Claimable ADA:</span>
-                  <span className="font-mono font-bold text-slate-200">
-                    {wallet.connected ? `${formatAmount(totalUserLovelace)} ADA` : "—"}
-                  </span>
-                </div>
-
-                {allUserPartnerTokens.length > 0 && (
-                  <div className="pt-2 border-t border-[#1f2d44]/60 space-y-1.5">
-                    <div className="text-[11px] font-semibold text-slate-400">Partner Project Tokens:</div>
-                    <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
-                      {allUserPartnerTokens.map((t) => (
-                        <div key={t.ticker} className="flex items-center justify-between text-[11px] font-mono">
-                          <span className="text-slate-400">{t.ticker}:</span>
-                          <span className="font-bold text-slate-200">
-                            {formatAmount(t.amount, t.decimals)}
-                          </span>
-                        </div>
-                      ))}
+                {isAllClaimed ? (
+                  <div className="space-y-2.5">
+                    <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 font-semibold">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span>Status:</span>
+                      </span>
+                      <span className="font-bold text-emerald-400">All Rewards Claimed ✓</span>
                     </div>
-                  </div>
-                )}
 
-                {wallet.connected && !hasAnyUserRewards && !loading && (
-                  <div className="text-center py-2 text-[11px] text-slate-500 italic">
-                    No unclaimed rewards allocated for this stake key in the current distribution.
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-400">Claimed GENS:</span>
+                      <span className="font-mono font-bold text-emerald-400 text-sm">
+                        {formatAmount(totalClaimedGens)} GENS
+                      </span>
+                    </div>
+
+                    {totalClaimedGensX > 0n && (
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-400">Claimed GENSX:</span>
+                        <span className="font-mono font-bold text-sky-400 text-sm">
+                          {formatAmount(totalClaimedGensX)} GENSX
+                        </span>
+                      </div>
+                    )}
+
+                    {totalClaimedLovelace > 0n && (
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-400">Claimed ADA:</span>
+                        <span className="font-mono font-bold text-slate-200">
+                          {formatAmount(totalClaimedLovelace)} ADA
+                        </span>
+                      </div>
+                    )}
+
+                    {allClaimedPartnerTokens.length > 0 && (
+                      <div className="pt-2 border-t border-[#1f2d44]/60 space-y-1.5">
+                        <div className="text-[11px] font-semibold text-slate-400">Claimed Partner Tokens:</div>
+                        <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+                          {allClaimedPartnerTokens.map((t) => (
+                            <div key={t.ticker} className="flex items-center justify-between text-[11px] font-mono">
+                              <span className="text-slate-400">{t.ticker}:</span>
+                              <span className="font-bold text-emerald-300">
+                                {formatAmount(t.amount, t.decimals)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-400">Total Claimable GENS:</span>
+                      <span className="font-mono font-bold text-emerald-400 text-sm">
+                        {wallet.connected ? `${formatAmount(totalUserGens)} GENS` : "—"}
+                      </span>
+                    </div>
+
+                    {totalUserGensX > 0n && (
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-400">Total Claimable GENSX:</span>
+                        <span className="font-mono font-bold text-sky-400 text-sm">
+                          {formatAmount(totalUserGensX)} GENSX
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-400">Total Claimable ADA:</span>
+                      <span className="font-mono font-bold text-slate-200">
+                        {wallet.connected ? `${formatAmount(totalUserLovelace)} ADA` : "—"}
+                      </span>
+                    </div>
+
+                    {allUserPartnerTokens.length > 0 && (
+                      <div className="pt-2 border-t border-[#1f2d44]/60 space-y-1.5">
+                        <div className="text-[11px] font-semibold text-slate-400">Partner Project Tokens:</div>
+                        <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+                          {allUserPartnerTokens.map((t) => (
+                            <div key={t.ticker} className="flex items-center justify-between text-[11px] font-mono">
+                              <span className="text-slate-400">{t.ticker}:</span>
+                              <span className="font-bold text-slate-200">
+                                {formatAmount(t.amount, t.decimals)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {wallet.connected && !hasAnyUserRewards && !loading && (
+                      <div className="text-center py-2 text-[11px] text-slate-500 italic">
+                        No unclaimed rewards allocated for this stake key in the current distribution.
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -590,6 +744,11 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
                     </>
                   )}
                 </button>
+              </div>
+            ) : isAllClaimed ? (
+              <div className="w-full py-3.5 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/40">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>All Accrued Rewards Claimed</span>
               </div>
             ) : (
               <button
