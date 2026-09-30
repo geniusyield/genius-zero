@@ -1,4 +1,4 @@
-import { getAddressDetails, LucidEvolution, UTxO } from "@lucid-evolution/lucid";
+import { getAddressDetails, LucidEvolution, UTxO, CML, fromHex } from "@lucid-evolution/lucid";
 import { NetworkType } from "../types";
 import { DEX_CONSTANTS, DEFAULT_MAINNET_TOKENS } from "../config/dex";
 
@@ -344,3 +344,79 @@ export async function fetchActiveRewardPools(
 
   return pools;
 }
+
+export interface ClaimRewardsParams {
+  network: NetworkType;
+  walletApi: any;
+  stakeAddress: string;
+  userAddresses: string[];
+  changeAddress: string;
+  claimServiceUrl?: string;
+  blockfrostApiKey?: string;
+}
+
+export async function executeClaimRewards(params: ClaimRewardsParams): Promise<{ txHash: string }> {
+  const constants = DEX_CONSTANTS[params.network];
+  const serviceUrl = params.claimServiceUrl || constants.claimServiceUrl;
+
+  // 1. Request signed claim transaction from the microservice
+  const response = await fetch(`${serviceUrl}/api/v1/claim`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      crStakeAddress: params.stakeAddress,
+      crUserAddresses: params.userAddresses,
+      crChangeAddress: params.changeAddress,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Claim microservice error (${response.status}): ${errorText}`);
+  }
+
+  const data = await response.json();
+  const crespTxCbor = data.crespTxCbor;
+  if (!crespTxCbor) {
+    throw new Error("Invalid response from claim microservice: missing transaction CBOR");
+  }
+
+  // 2. Request user signature witness via CIP-30 wallet
+  // partialSign = true because the transaction is already co-signed by the rewards owner key
+  const userWitnessCbor = await params.walletApi.signTx(crespTxCbor, true);
+
+  // 3. Assemble the transaction: merge the user's witness into the co-signed transaction
+  const tx = CML.Transaction.from_cbor_hex(crespTxCbor);
+  const userWitnessSet = CML.TransactionWitnessSet.from_cbor_hex(userWitnessCbor);
+  const witnessSet = tx.witness_set();
+  witnessSet.add_all_witnesses(userWitnessSet);
+  const finalTx = CML.Transaction.new(tx.body(), witnessSet, tx.is_valid(), tx.auxiliary_data());
+  const finalTxCbor = finalTx.to_cbor_hex();
+
+  // 4. Submit transaction to Cardano network
+  let txHash: string;
+  try {
+    txHash = await params.walletApi.submitTx(finalTxCbor);
+  } catch (walletErr) {
+    console.warn("Wallet submitTx failed, falling back to Blockfrost direct submit:", walletErr);
+    if (!params.blockfrostApiKey) {
+      throw walletErr;
+    }
+    const bfSubmitRes = await fetch(`${constants.blockfrostUrl}/tx/submit`, {
+      method: "POST",
+      headers: {
+        "project_id": params.blockfrostApiKey,
+        "Content-Type": "application/cbor",
+      },
+      body: new Blob([fromHex(finalTxCbor) as any], { type: "application/cbor" }),
+    });
+    if (!bfSubmitRes.ok) {
+      const errBody = await bfSubmitRes.text();
+      throw new Error(`Transaction submission failed: ${errBody}`);
+    }
+    txHash = (await bfSubmitRes.json()) as string;
+  }
+
+  return { txHash };
+}
+

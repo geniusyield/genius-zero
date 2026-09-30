@@ -17,8 +17,8 @@ import {
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { DEX_CONSTANTS } from "../config/dex";
-import { fetchActiveRewardPools, RewardPool, RewardAsset } from "../services/rewards";
-import { getAddressDetails } from "@lucid-evolution/lucid";
+import { fetchActiveRewardPools, executeClaimRewards, RewardPool, RewardAsset } from "../services/rewards";
+import { getAddressDetails, credentialToRewardAddress } from "@lucid-evolution/lucid";
 
 interface RewardsClaimViewProps {
   onOpenWallet: () => void;
@@ -34,6 +34,7 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
   const [loading, setLoading] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const [claimTxHash, setClaimTxHash] = useState<string | null>(null);
+  const [claimError, setClaimError] = useState<string | null>(null);
   const [expandedPool, setExpandedPool] = useState<string | null>(null);
 
   const constants = DEX_CONSTANTS[settings.network];
@@ -96,21 +97,51 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
     totalUserLovelace > 0n || totalUserGens > 0n || totalUserGensX > 0n || allUserPartnerTokens.length > 0;
 
   const handleClaim = async () => {
-    if (!wallet.connected) {
+    if (!wallet.connected || !wallet.address || !wallet.walletName) {
       onOpenWallet();
       return;
     }
 
     setClaiming(true);
+    setClaimError(null);
+    setClaimTxHash(null);
     try {
-      // In Genius Yield architecture, rewards at addr1vy38... are spent via the Claim Microservice
-      // co-signing with owner.skey.
+      const details = getAddressDetails(wallet.address);
+      const networkParam = settings.network === "mainnet" ? "Mainnet" : "Preprod";
+      const stakeAddr =
+        wallet.rewardAddress ||
+        (details.stakeCredential ? credentialToRewardAddress(networkParam, details.stakeCredential) : null);
+
+      if (!stakeAddr) {
+        throw new Error("Could not determine stake address from connected wallet.");
+      }
+
+      if (typeof window === "undefined" || !(window as any).cardano?.[wallet.walletName]) {
+        throw new Error(`Wallet ${wallet.walletName} is not accessible in browser.`);
+      }
+
+      const walletApi = await (window as any).cardano[wallet.walletName].enable();
+      const usedAddrs = wallet.usedAddresses && wallet.usedAddresses.length > 0
+        ? wallet.usedAddresses
+        : [wallet.address];
+
+      const res = await executeClaimRewards({
+        network: settings.network,
+        walletApi,
+        stakeAddress: stakeAddr,
+        userAddresses: usedAddrs,
+        changeAddress: wallet.address,
+        blockfrostApiKey: settings.blockfrostApiKey || undefined,
+      });
+
+      setClaimTxHash(res.txHash);
       setTimeout(() => {
-        setClaimTxHash("demo_rewards_claim_transaction_cardano");
-        setClaiming(false);
-      }, 1500);
-    } catch (err) {
-      console.error(err);
+        loadPools();
+      }, 10000);
+    } catch (err: any) {
+      console.error("Claim error:", err);
+      setClaimError(err.message || String(err));
+    } finally {
       setClaiming(false);
     }
   };
@@ -432,9 +463,35 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
 
           <div className="space-y-3">
             {claimTxHash && (
-              <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-800/50 text-emerald-300 text-xs flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Rewards claim transaction prepared!</span>
+              <div className="p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-500/50 text-emerald-200 text-xs space-y-1.5">
+                <div className="flex items-center gap-2 font-bold text-white">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Rewards Claimed Successfully!</span>
+                </div>
+                <div className="text-[11px] font-mono break-all flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+                  <span className="text-slate-300">
+                    Tx: {claimTxHash.slice(0, 16)}...{claimTxHash.slice(-8)}
+                  </span>
+                  <a
+                    href={`${txExplorerBaseUrl}/${claimTxHash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-emerald-400 hover:underline flex items-center gap-1 font-sans text-xs shrink-0"
+                  >
+                    <span>View on Cardanoscan</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {claimError && (
+              <div className="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/50 text-rose-200 text-xs space-y-1">
+                <div className="flex items-center gap-2 font-bold text-white">
+                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>Claim Failed</span>
+                </div>
+                <p className="text-[11px] text-rose-300 break-words">{claimError}</p>
               </div>
             )}
 

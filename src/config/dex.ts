@@ -22,6 +22,7 @@ export interface DexNetworkConstants {
   gensVaultNftPolicy: string;
   gensxVaultNftPolicy: string;
   blockfrostUrl: string;
+  claimServiceUrl: string;
 }
 
 export const DEX_CONSTANTS: Record<NetworkType, DexNetworkConstants> = {
@@ -47,6 +48,7 @@ export const DEX_CONSTANTS: Record<NetworkType, DexNetworkConstants> = {
     gensVaultNftPolicy: "dda5fdb1002f7389b33e036b6afee82a8189becb6cba852e8b79b4fb",
     gensxVaultNftPolicy: "fbae99b8679369079a7f6f0da14a2cf1c2d6bfd3afdf3a96a64ab67a",
     blockfrostUrl: "https://cardano-mainnet.blockfrost.io/api/v0",
+    claimServiceUrl: "https://2.28.204.8.sslip.io",
   },
   preprod: {
     network: "preprod",
@@ -70,6 +72,7 @@ export const DEX_CONSTANTS: Record<NetworkType, DexNetworkConstants> = {
     gensVaultNftPolicy: "c6e65ba7878b2f8ea0ad39287d3e2fd256dc5c4160fc19bdf4c4d87e",
     gensxVaultNftPolicy: "fbae99b8679369079a7f6f0da14a2cf1c2d6bfd3afdf3a96a64ab67a",
     blockfrostUrl: "https://cardano-preprod.blockfrost.io/api/v0",
+    claimServiceUrl: "https://2.28.204.8.sslip.io",
   },
 };
 
