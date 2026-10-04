@@ -479,6 +479,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     setOrderBookProgress(null);
   }, []);
 
+  // Refresh wallet balances
+  const refreshWalletBalances = useCallback(async () => {
+    if (!lucid || !wallet.connected) return;
+    try {
+      const utxos = await lucid.wallet().getUtxos();
+      let balanceLovelace = 0n;
+      const tokenBalances: Record<string, bigint> = {};
+      for (const utxo of utxos) {
+        for (const [unit, amount] of Object.entries(utxo.assets)) {
+          if (unit === "lovelace") {
+            balanceLovelace += amount;
+          } else {
+            tokenBalances[unit] = (tokenBalances[unit] || 0n) + amount;
+          }
+        }
+      }
+      setWallet((prev) => ({
+        ...prev,
+        balanceLovelace,
+        tokenBalances,
+      }));
+    } catch (err) {
+      console.warn("Failed to refresh wallet balances:", err);
+    }
+  }, [lucid, wallet.connected]);
+
   // Refresh OrderBook
   const refreshOrderBook = useCallback(async () => {
     if (!lucid) return;
@@ -511,13 +537,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       } else if (!userKeys) {
         setUserOrders([]);
       }
+
+      refreshWalletBalances();
     } catch (err: any) {
       console.error("Order book refresh error:", err);
     } finally {
       setLoadingOrderBook(false);
       setOrderBookProgress(null);
     }
-  }, [lucid, settings.network, activePair, wallet.pkh, wallet.pkhs]);
+  }, [lucid, settings.network, activePair, wallet.pkh, wallet.pkhs, refreshWalletBalances]);
 
   // Trigger refresh when pair, network, or lucid changes
   useEffect(() => {
@@ -549,8 +577,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         pair: activePair,
       });
       setActionMessage(`Transaction submitted: ${txHash.slice(0, 16)}...`);
-      // Trigger orderbook refresh after short delay
-      setTimeout(() => refreshOrderBook(), 4000);
+
+      // Await on-chain block confirmation before refreshing so the newly minted UTxO is indexed
+      lucid
+        .awaitTx(txHash)
+        .then(() => {
+          refreshOrderBook();
+          refreshWalletBalances();
+        })
+        .catch((err) => {
+          console.warn("awaitTx warning:", err);
+          setTimeout(() => {
+            refreshOrderBook();
+            refreshWalletBalances();
+          }, 20000);
+        });
+
       return txHash;
     } catch (err: any) {
       const msg = err?.message || "Failed to place order";
@@ -572,7 +614,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       const { txHash } = await cancelLimitOrder(lucid, order);
       setActionMessage(`Order cancelled: ${txHash.slice(0, 16)}...`);
-      setTimeout(() => refreshOrderBook(), 4000);
+
+      // Optimistically remove cancelled order immediately from order book and user orders
+      const orderMatch = (o: DexOrder) =>
+        o.utxoRef.txHash === order.utxoRef.txHash &&
+        o.utxoRef.outputIndex === order.utxoRef.outputIndex;
+
+      setOrderBook((prev) => ({
+        ...prev,
+        bids: prev.bids.filter((b) => !orderMatch(b)),
+        asks: prev.asks.filter((a) => !orderMatch(a)),
+      }));
+      setUserOrders((prev) => prev.filter((o) => !orderMatch(o)));
+
+      // Await on-chain block confirmation before final sync
+      lucid
+        .awaitTx(txHash)
+        .then(() => {
+          refreshOrderBook();
+          refreshWalletBalances();
+        })
+        .catch((err) => {
+          console.warn("awaitTx warning:", err);
+          setTimeout(() => {
+            refreshOrderBook();
+            refreshWalletBalances();
+          }, 20000);
+        });
+
       return txHash;
     } catch (err: any) {
       const msg = err?.message || "Failed to cancel order";
@@ -597,7 +666,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         fillAmount,
       });
       setActionMessage(`Order filled: ${txHash.slice(0, 16)}...`);
-      setTimeout(() => refreshOrderBook(), 4000);
+
+      const orderMatch = (o: DexOrder) =>
+        o.utxoRef.txHash === order.utxoRef.txHash &&
+        o.utxoRef.outputIndex === order.utxoRef.outputIndex;
+
+      const isCompleteFill = !fillAmount || fillAmount >= order.offeredAmount;
+
+      if (isCompleteFill) {
+        // Optimistically remove completely filled order immediately
+        setOrderBook((prev) => ({
+          ...prev,
+          bids: prev.bids.filter((b) => !orderMatch(b)),
+          asks: prev.asks.filter((a) => !orderMatch(a)),
+        }));
+        setUserOrders((prev) => prev.filter((o) => !orderMatch(o)));
+      } else {
+        // Partial fill: decrement offered amount optimistically
+        const remaining = order.offeredAmount - fillAmount;
+        const updateOrder = (o: DexOrder): DexOrder =>
+          orderMatch(o) ? { ...o, offeredAmount: remaining } : o;
+
+        setOrderBook((prev) => ({
+          ...prev,
+          bids: prev.bids.map(updateOrder),
+          asks: prev.asks.map(updateOrder),
+        }));
+        setUserOrders((prev) => prev.map(updateOrder));
+      }
+
+      // Await on-chain block confirmation before final sync
+      lucid
+        .awaitTx(txHash)
+        .then(() => {
+          refreshOrderBook();
+          refreshWalletBalances();
+        })
+        .catch((err) => {
+          console.warn("awaitTx warning:", err);
+          setTimeout(() => {
+            refreshOrderBook();
+            refreshWalletBalances();
+          }, 20000);
+        });
+
       return txHash;
     } catch (err: any) {
       const msg = err?.message || "Failed to fill order";
