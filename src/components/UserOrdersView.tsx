@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Trash2, AlertCircle, Loader2, ExternalLink } from "lucide-react";
+import { Trash2, AlertCircle, Loader2, ExternalLink, ArrowRight } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { DexOrder } from "../types";
 
@@ -20,20 +20,35 @@ export const UserOrdersView: React.FC = () => {
   };
 
   const formatUnit = (unit: string) => {
-    if (unit === "lovelace") return "ADA";
+    if (unit === "lovelace" || unit === "") return "ADA";
     if (unit.includes("47454e53")) return "GENS";
     if (unit.includes("534e454b")) return "SNEK";
     if (unit.includes("4e4d4b52")) return "NMKR";
     if (unit.includes("494147")) return "IAG";
     if (unit.includes("444a4544")) return "DJED";
+    if (unit.includes("545354")) return "TST";
     return `${unit.slice(0, 6)}...`;
   };
 
+  const getDecimals = (unit: string) => {
+    if (unit === "lovelace" || unit === "") return 6;
+    if (unit.includes("47454e53")) return 6; // GENS has 6 decimals
+    if (unit.includes("444a4544")) return 6; // DJED has 6 decimals
+    return 0;
+  };
+
   const formatAmount = (amt: bigint, unit: string) => {
-    const decimals = unit === "lovelace" || unit.includes("47454e53") ? 6 : 0;
+    const decimals = getDecimals(unit);
     return (Number(amt) / Math.pow(10, decimals)).toLocaleString(undefined, {
       maximumFractionDigits: 2,
     });
+  };
+
+  const formatPrice = (p: number) => {
+    if (p <= 0) return "0.00";
+    if (p < 0.0001) return p.toExponential(4);
+    if (p < 1) return p.toFixed(6);
+    return p.toFixed(4);
   };
 
   const explorerBaseUrl =
@@ -47,7 +62,7 @@ export const UserOrdersView: React.FC = () => {
         <div>
           <h3 className="font-bold text-sm text-white">My Open Orders</h3>
           <p className="text-xs text-slate-400">
-            Active orders placed by your wallet on the Cardano DEX smart contract
+            Active on-chain orders created by your wallet in the DEX smart contract
           </p>
         </div>
         <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#182234] text-slate-300 border border-[#1f2d44]">
@@ -69,10 +84,10 @@ export const UserOrdersView: React.FC = () => {
           <table className="w-full text-left text-xs font-mono">
             <thead>
               <tr className="border-b border-[#1f2d44] text-[10px] text-slate-500 uppercase tracking-wider">
-                <th className="py-2.5 px-3">Type</th>
-                <th className="py-2.5 px-3">Offered</th>
-                <th className="py-2.5 px-3">Asked</th>
-                <th className="py-2.5 px-3">Locked Deposit</th>
+                <th className="py-2.5 px-3">Direction (Put In → Want Out)</th>
+                <th className="py-2.5 px-3">Offered (Deposited)</th>
+                <th className="py-2.5 px-3">Exchange Rate (Both Directions)</th>
+                <th className="py-2.5 px-3">Refundable Deposit</th>
                 <th className="py-2.5 px-3">UTxO Ref</th>
                 <th className="py-2.5 px-3 text-right">Action</th>
               </tr>
@@ -82,29 +97,50 @@ export const UserOrdersView: React.FC = () => {
                 const refKey = `${order.utxoRef.txHash}#${order.utxoRef.outputIndex}`;
                 const isCanceling = cancelingRef === refKey && actionPending;
 
+                const offerSym = formatUnit(order.offeredAsset);
+                const askSym = formatUnit(order.askedAsset);
+                const offDec = getDecimals(order.offeredAsset);
+                const askDec = getDecimals(order.askedAsset);
+
+                // Rate: 1 offeredToken = (num * 10^offDec) / (den * 10^askDec) askedTokens
+                const rateNum = Number(order.price.numerator) * Math.pow(10, offDec);
+                const rateDen = Number(order.price.denominator) * Math.pow(10, askDec);
+                const rate = rateDen > 0 ? rateNum / rateDen : 0;
+                const reciprocal = rate > 0 ? 1 / rate : 0;
+
                 return (
                   <tr key={refKey} className="hover:bg-[#182234]/50 transition-colors">
+                    {/* Direction */}
                     <td className="py-3 px-3">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                          order.orderType === "bid"
-                            ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                            : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
-                        }`}
-                      >
-                        {order.orderType === "bid" ? "Buy" : "Sell"}
-                      </span>
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#141b27] border border-[#1f2d44] text-[11px]">
+                        <span className="font-bold text-emerald-400">{offerSym}</span>
+                        <ArrowRight className="w-3 h-3 text-slate-500" />
+                        <span className="font-bold text-slate-200">{askSym}</span>
+                      </div>
                     </td>
+
+                    {/* Offered Amount */}
                     <td className="py-3 px-3 text-slate-200">
-                      {formatAmount(order.offeredAmount, order.offeredAsset)}{" "}
-                      <span className="text-slate-400">{formatUnit(order.offeredAsset)}</span>
+                      <span className="font-bold">{formatAmount(order.offeredAmount, order.offeredAsset)}</span>{" "}
+                      <span className="text-slate-400">{offerSym}</span>
                     </td>
-                    <td className="py-3 px-3 text-slate-200">
-                      <span className="text-slate-400">{formatUnit(order.askedAsset)}</span>
+
+                    {/* Exchange Rate */}
+                    <td className="py-3 px-3">
+                      <div className="text-slate-200 font-semibold">
+                        1 {offerSym} = {formatPrice(rate)} {askSym}
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        (1 {askSym} = {formatPrice(reciprocal)} {offerSym})
+                      </div>
                     </td>
+
+                    {/* Locked Refundable Deposit */}
                     <td className="py-3 px-3 text-slate-400">
                       {(Number(order.depositLovelace) / 1_000_000).toFixed(2)} ADA
                     </td>
+
+                    {/* UTxO Ref */}
                     <td className="py-3 px-3">
                       <a
                         href={`${explorerBaseUrl}/${order.utxoRef.txHash}`}
@@ -116,6 +152,8 @@ export const UserOrdersView: React.FC = () => {
                         <ExternalLink className="w-3 h-3" />
                       </a>
                     </td>
+
+                    {/* Cancel Action */}
                     <td className="py-3 px-3 text-right">
                       <button
                         type="button"
@@ -128,7 +166,7 @@ export const UserOrdersView: React.FC = () => {
                         ) : (
                           <Trash2 className="w-3.5 h-3.5" />
                         )}
-                        <span>Cancel</span>
+                        <span>Cancel & Refund</span>
                       </button>
                     </td>
                   </tr>

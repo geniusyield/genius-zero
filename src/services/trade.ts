@@ -24,22 +24,52 @@ export function toSimplifiedRational(num: bigint, den: bigint): RationalD {
 
 export interface PlaceOrderParams {
   pair: TradingPair;
-  orderType: "buy" | "sell";
-  amount: number; // In base token units (e.g. 50 GENS)
-  price: number; // In ADA per base token (e.g. 0.25 ADA / GENS)
+  // Symmetric token direction:
+  offerAsset?: "base" | "quote"; // "base" = depositing baseToken, asking quoteToken; "quote" = depositing quoteToken, asking baseToken
+  offerAmount?: number; // In units of the offered token (e.g. 100 GENS)
+  askAmount?: number; // In units of the asked token (e.g. 25 ADA)
+  // Legacy parameters (for backwards compatibility)
+  orderType?: "buy" | "sell";
+  amount?: number;
+  price?: number;
 }
 
 export async function placeLimitOrder(
   lucid: LucidEvolution,
   params: PlaceOrderParams
 ): Promise<{ txHash: string }> {
-  const { pair, orderType, amount, price } = params;
+  const { pair } = params;
 
-  if (amount <= 0) {
-    throw new Error("Amount must be greater than 0.");
+  let offerAsset: "base" | "quote";
+  let offerAmount: number;
+  let askAmount: number;
+
+  if (params.offerAsset && params.offerAmount !== undefined && params.askAmount !== undefined) {
+    offerAsset = params.offerAsset;
+    offerAmount = params.offerAmount;
+    askAmount = params.askAmount;
+  } else if (params.orderType && params.amount !== undefined && params.price !== undefined) {
+    // Legacy conversion:
+    // "sell" = offer base, ask quote (askAmount = amount * price)
+    // "buy" = offer quote, ask base (offerAmount = amount * price, askAmount = amount)
+    if (params.orderType === "sell") {
+      offerAsset = "base";
+      offerAmount = params.amount;
+      askAmount = params.amount * params.price;
+    } else {
+      offerAsset = "quote";
+      offerAmount = params.amount * params.price;
+      askAmount = params.amount;
+    }
+  } else {
+    throw new Error("Invalid order parameters: please provide offer and ask amounts.");
   }
-  if (price <= 0) {
-    throw new Error("Price must be greater than 0.");
+
+  if (offerAmount <= 0) {
+    throw new Error("Offer amount must be greater than 0.");
+  }
+  if (askAmount <= 0) {
+    throw new Error("Ask amount must be greater than 0.");
   }
 
   const walletUtxos: UTxO[] = await lucid.wallet().getUtxos();
@@ -52,35 +82,26 @@ export async function placeLimitOrder(
   const ownerAddress = await lucid.wallet().address();
 
   let offerAmt: bigint;
+  let askAmt: bigint;
   let offerAC: string;
   let priceAC: string;
-  let rationalPrice: RationalD;
 
-  if (orderType === "sell") {
+  if (offerAsset === "base") {
     // User offers base token (e.g. GENS) and asks for quote token (e.g. ADA)
     offerAC = pair.baseToken.unit;
     priceAC = pair.quoteToken.unit;
-    offerAmt = BigInt(Math.floor(amount * Math.pow(10, pair.baseToken.decimals)));
-
-    // price = asked / offered = (price * 10^quoteDecimals) / (10^baseDecimals)
-    const scale = 1_000_000n;
-    const num = BigInt(Math.round(price * Number(scale))) * BigInt(Math.pow(10, pair.quoteToken.decimals));
-    const den = scale * BigInt(Math.pow(10, pair.baseToken.decimals));
-    rationalPrice = toSimplifiedRational(num, den);
+    offerAmt = BigInt(Math.floor(offerAmount * Math.pow(10, pair.baseToken.decimals)));
+    askAmt = BigInt(Math.floor(askAmount * Math.pow(10, pair.quoteToken.decimals)));
   } else {
     // User offers quote token (e.g. ADA) and asks for base token (e.g. GENS)
     offerAC = pair.quoteToken.unit;
     priceAC = pair.baseToken.unit;
-    const totalQuote = amount * price;
-    offerAmt = BigInt(Math.floor(totalQuote * Math.pow(10, pair.quoteToken.decimals)));
-
-    // In a buy order datum: asked is base, offered is quote
-    // price = asked / offered = (amount * 10^baseDecimals) / (totalQuote * 10^quoteDecimals) = 1 / price
-    const scale = 1_000_000n;
-    const num = scale * BigInt(Math.pow(10, pair.baseToken.decimals));
-    const den = BigInt(Math.round(price * Number(scale))) * BigInt(Math.pow(10, pair.quoteToken.decimals));
-    rationalPrice = toSimplifiedRational(num, den);
+    offerAmt = BigInt(Math.floor(offerAmount * Math.pow(10, pair.quoteToken.decimals)));
+    askAmt = BigInt(Math.floor(askAmount * Math.pow(10, pair.baseToken.decimals)));
   }
+
+  // Rational price in datum is asked / offered
+  const rationalPrice = toSimplifiedRational(askAmt, offerAmt);
 
   const [, txBuilder] = await createOrder(
     lucid,
