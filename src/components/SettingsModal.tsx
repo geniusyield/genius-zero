@@ -28,7 +28,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [showPreprodKey, setShowPreprodKey] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(settings.autoRefreshInterval);
   const [saved, setSaved] = useState(false);
-  const [cacheStats, setCacheStats] = useState({ datums: 0, transactions: 0, tokens: 0 });
+  const [cacheStats, setCacheStats] = useState({ datums: 0, transactions: 0, tokens: 0, orders: 0 });
 
   const loadStats = async () => {
     const stats = await getCacheStats();
@@ -286,13 +286,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <p className="text-[11px] text-slate-400 leading-relaxed">
               Cardano eUTxO datums and confirmed transactions are mathematically immutable. Once cached in browser IndexedDB, they never need to be fetched again from Blockfrost, saving thousands of API requests.
             </p>
-            <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+            <div className="grid grid-cols-3 gap-2 text-xs font-mono">
               <div className="p-2.5 rounded-lg bg-[#0e131d] border border-[#1f2d44]/50">
-                <span className="text-slate-500 text-[10px] uppercase font-semibold">Cached Datums</span>
+                <span className="text-slate-500 text-[10px] uppercase font-semibold">Orders</span>
+                <div className="text-amber-400 font-bold text-sm pt-0.5">{cacheStats.orders}</div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-[#0e131d] border border-[#1f2d44]/50">
+                <span className="text-slate-500 text-[10px] uppercase font-semibold">Datums</span>
                 <div className="text-emerald-400 font-bold text-sm pt-0.5">{cacheStats.datums}</div>
               </div>
               <div className="p-2.5 rounded-lg bg-[#0e131d] border border-[#1f2d44]/50">
-                <span className="text-slate-500 text-[10px] uppercase font-semibold">Cached Txs</span>
+                <span className="text-slate-500 text-[10px] uppercase font-semibold">Txs</span>
                 <div className="text-sky-400 font-bold text-sm pt-0.5">{cacheStats.transactions}</div>
               </div>
             </div>

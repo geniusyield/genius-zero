@@ -5,26 +5,29 @@ import { myDatumOf } from "../contracts/api";
 import { assetClassDToUnit, toAddress } from "../contracts/utils";
 import { PartialOrderDatum } from "../contracts/contract.types";
 import { runWithConcurrency } from "./staking";
+import {
+  ParsedOnChainOrder,
+  getCachedOrders,
+  saveCachedOrders,
+  pruneCachedOrders,
+} from "./cache";
 
-export async function fetchAllOrdersForPair(
+/**
+ * Fetches all active parsed orders for the network, using the local IndexedDB cache
+ * to avoid re-fetching and re-parsing immutable on-chain order UTxOs.
+ * Also prunes spent/filled/cancelled orders from the cache.
+ */
+export async function fetchAllActiveParsedOrders(
   lucid: LucidEvolution,
   network: NetworkType,
-  pair: TradingPair,
-  userPkh?: string | string[],
   onProgress?: (progress: FetchProgress) => void,
   abortSignal?: { aborted: boolean }
-): Promise<OrderBook> {
+): Promise<ParsedOnChainOrder[]> {
   const constants = DEX_CONSTANTS[network];
   const valCred = {
     type: "Script" as const,
     hash: constants.valCredHash,
   };
-
-  const pkhList = Array.isArray(userPkh)
-    ? userPkh
-    : userPkh
-    ? [userPkh]
-    : [];
 
   onProgress?.({
     current: 0,
@@ -33,10 +36,10 @@ export async function fetchAllOrdersForPair(
     itemType: "UTxOs",
   });
 
-  // Fetch UTxOs at the validator script credential
+  // 1. Fetch active UTxOs at the validator script credential
   const utxos: UTxO[] = await lucid.utxosAt(valCred);
 
-  // Filter for UTxOs containing the DEX order tracking NFT
+  // 2. Filter for UTxOs containing the DEX order tracking NFT
   const orderUtxos = utxos.filter((utxo) =>
     Object.keys(utxo.assets).some(
       (unit) =>
@@ -46,18 +49,52 @@ export async function fetchAllOrdersForPair(
   );
 
   const total = orderUtxos.length;
+  const activeKeys = new Set(orderUtxos.map((u) => `${u.txHash}#${u.outputIndex}`));
+
+  // 3. Load cached orders from IndexedDB
+  const cachedMap = await getCachedOrders(network);
+
+  const hits: ParsedOnChainOrder[] = [];
+  const misses: UTxO[] = [];
+
+  for (const utxo of orderUtxos) {
+    const key = `${utxo.txHash}#${utxo.outputIndex}`;
+    const cached = cachedMap.get(key);
+    if (cached) {
+      hits.push(cached);
+    } else {
+      misses.push(utxo);
+    }
+  }
+
+  // 4. Prune spent orders in the background (orders no longer active on-chain)
+  pruneCachedOrders(network, activeKeys).catch((err) =>
+    console.warn("Background order prune error:", err)
+  );
+
+  // If all orders were cached hits, return immediately!
+  if (misses.length === 0) {
+    onProgress?.({
+      current: total,
+      total,
+      stage: `Loaded ${total} active orders from local cache.`,
+      itemType: "Orders",
+    });
+    return hits;
+  }
+
   onProgress?.({
-    current: 0,
+    current: hits.length,
     total,
-    stage: `Found ${total} DEX orders. Parsing datums...`,
+    stage: `Cached: ${hits.length}, Fetching new: ${misses.length}...`,
     itemType: "Orders",
   });
 
-  const bids: DexOrder[] = [];
-  const asks: DexOrder[] = [];
+  const newlyParsed: ParsedOnChainOrder[] = [];
 
+  // 5. Parse only the misses
   await runWithConcurrency(
-    orderUtxos,
+    misses,
     8,
     async (utxo) => {
       const nftUnit = Object.keys(utxo.assets).find(
@@ -72,47 +109,7 @@ export async function fetchAllOrdersForPair(
         const offeredUnit = assetClassDToUnit(datum.podOfferedAsset);
         const askedUnit = assetClassDToUnit(datum.podAskedAsset);
 
-        const isAsk =
-          offeredUnit === pair.baseToken.unit &&
-          askedUnit === pair.quoteToken.unit;
-
-        const isBid =
-          offeredUnit === pair.quoteToken.unit &&
-          askedUnit === pair.baseToken.unit;
-
-        if (!isAsk && !isBid) return;
-
-        // Skip orders that have expired or are not yet active
-        const now = Date.now();
-        if (datum.podEnd && Number(datum.podEnd) <= now) {
-          return;
-        }
-        if (datum.podStart && Number(datum.podStart) > now) {
-          return;
-        }
-
-        const num = Number(datum.podPrice.numerator);
-        const den = Number(datum.podPrice.denominator);
-        if (den === 0 || num === 0) return;
-
-        let effectivePrice = 0;
-        if (isAsk) {
-          const rawRatio = num / den;
-          const decimalAdjustment = Math.pow(
-            10,
-            pair.baseToken.decimals - pair.quoteToken.decimals
-          );
-          effectivePrice = rawRatio * decimalAdjustment;
-        } else {
-          const rawRatio = den / num;
-          const decimalAdjustment = Math.pow(
-            10,
-            pair.baseToken.decimals - pair.quoteToken.decimals
-          );
-          effectivePrice = rawRatio * decimalAdjustment;
-        }
-
-        const order: DexOrder = {
+        const order: ParsedOnChainOrder = {
           utxoRef: {
             txHash: utxo.txHash,
             outputIndex: utxo.outputIndex,
@@ -127,36 +124,130 @@ export async function fetchAllOrdersForPair(
             numerator: datum.podPrice.numerator,
             denominator: datum.podPrice.denominator,
           },
-          effectivePrice,
-          orderType: isAsk ? "ask" : "bid",
           nftUnit,
           depositLovelace: utxo.assets.lovelace,
           partialFills: datum.podPartialFills,
           start: datum.podStart,
           end: datum.podEnd,
-          isExpired: false,
-          isUserOrder: pkhList.length > 0 ? pkhList.includes(datum.podOwnerKey) : false,
         };
 
-        if (isAsk) {
-          asks.push(order);
-        } else {
-          bids.push(order);
-        }
+        newlyParsed.push(order);
       } catch {
         // Skip unreadable or non-order datum
       }
     },
-    (current, total) => {
+    (current) => {
       onProgress?.({
-        current,
+        current: hits.length + current,
         total,
-        stage: `Fetching order datums (${current}/${total})`,
+        stage: `Fetching new orders (${hits.length + current}/${total})`,
         itemType: "Orders",
       });
     },
     () => !!abortSignal?.aborted
   );
+
+  // 6. Save newly parsed orders to IndexedDB cache
+  if (newlyParsed.length > 0) {
+    saveCachedOrders(network, newlyParsed).catch((err) =>
+      console.warn("Failed to save orders to cache:", err)
+    );
+  }
+
+  return [...hits, ...newlyParsed];
+}
+
+export async function fetchAllOrdersForPair(
+  lucid: LucidEvolution,
+  network: NetworkType,
+  pair: TradingPair,
+  userPkh?: string | string[],
+  onProgress?: (progress: FetchProgress) => void,
+  abortSignal?: { aborted: boolean }
+): Promise<OrderBook> {
+  const pkhList = Array.isArray(userPkh)
+    ? userPkh
+    : userPkh
+    ? [userPkh]
+    : [];
+
+  const allOrders = await fetchAllActiveParsedOrders(
+    lucid,
+    network,
+    onProgress,
+    abortSignal
+  );
+
+  const bids: DexOrder[] = [];
+  const asks: DexOrder[] = [];
+  const now = Date.now();
+
+  for (const rawOrder of allOrders) {
+    const isAsk =
+      rawOrder.offeredAsset === pair.baseToken.unit &&
+      rawOrder.askedAsset === pair.quoteToken.unit;
+
+    const isBid =
+      rawOrder.offeredAsset === pair.quoteToken.unit &&
+      rawOrder.askedAsset === pair.baseToken.unit;
+
+    if (!isAsk && !isBid) continue;
+
+    // Skip orders that have expired or are not yet active
+    if (rawOrder.end && Number(rawOrder.end) <= now) {
+      continue;
+    }
+    if (rawOrder.start && Number(rawOrder.start) > now) {
+      continue;
+    }
+
+    const num = Number(rawOrder.price.numerator);
+    const den = Number(rawOrder.price.denominator);
+    if (den === 0 || num === 0) continue;
+
+    let effectivePrice = 0;
+    if (isAsk) {
+      const rawRatio = num / den;
+      const decimalAdjustment = Math.pow(
+        10,
+        pair.baseToken.decimals - pair.quoteToken.decimals
+      );
+      effectivePrice = rawRatio * decimalAdjustment;
+    } else {
+      const rawRatio = den / num;
+      const decimalAdjustment = Math.pow(
+        10,
+        pair.baseToken.decimals - pair.quoteToken.decimals
+      );
+      effectivePrice = rawRatio * decimalAdjustment;
+    }
+
+    const order: DexOrder = {
+      utxoRef: rawOrder.utxoRef,
+      ownerAddress: rawOrder.ownerAddress,
+      ownerKey: rawOrder.ownerKey,
+      offeredAsset: rawOrder.offeredAsset,
+      offeredAmount: rawOrder.offeredAmount,
+      offeredOriginalAmount: rawOrder.offeredOriginalAmount,
+      askedAsset: rawOrder.askedAsset,
+      price: rawOrder.price,
+      effectivePrice,
+      orderType: isAsk ? "ask" : "bid",
+      nftUnit: rawOrder.nftUnit,
+      depositLovelace: rawOrder.depositLovelace,
+      partialFills: rawOrder.partialFills,
+      start: rawOrder.start,
+      end: rawOrder.end,
+      isExpired: false,
+      isUserOrder: pkhList.length > 0 ? pkhList.includes(rawOrder.ownerKey) : false,
+    };
+
+    if (isAsk) {
+      asks.push(order);
+    } else {
+      bids.push(order);
+    }
+  }
 
   // Sort asks ascending by price (cheapest sell first)
   asks.sort((a, b) => a.effectivePrice - b.effectivePrice);
@@ -194,92 +285,52 @@ export async function fetchUserOrders(
   onProgress?: (progress: FetchProgress) => void,
   abortSignal?: { aborted: boolean }
 ): Promise<DexOrder[]> {
-  const constants = DEX_CONSTANTS[network];
-  const valCred = {
-    type: "Script" as const,
-    hash: constants.valCredHash,
-  };
-
   const pkhList = Array.isArray(userPkh)
     ? userPkh
     : userPkh
     ? [userPkh]
     : [];
 
-  const utxos: UTxO[] = await lucid.utxosAt(valCred);
-  const orderUtxos = utxos.filter((utxo) =>
-    Object.keys(utxo.assets).some(
-      (unit) =>
-        unit.startsWith(constants.mintPolicyId) &&
-        unit.length === constants.mintPolicyId.length + 64
-    )
+  if (pkhList.length === 0) return [];
+
+  const allOrders = await fetchAllActiveParsedOrders(
+    lucid,
+    network,
+    onProgress,
+    abortSignal
   );
 
   const userOrders: DexOrder[] = [];
+  const now = Date.now();
 
-  await runWithConcurrency(
-    orderUtxos,
-    8,
-    async (utxo) => {
-      const nftUnit = Object.keys(utxo.assets).find(
-        (unit) =>
-          unit.startsWith(constants.mintPolicyId) &&
-          unit.length === constants.mintPolicyId.length + 64
-      );
-      if (!nftUnit) return;
+  for (const rawOrder of allOrders) {
+    if (!pkhList.includes(rawOrder.ownerKey)) continue;
 
-      try {
-        const datum: PartialOrderDatum = await myDatumOf(lucid, utxo);
-        if (!pkhList.includes(datum.podOwnerKey)) return;
+    const num = Number(rawOrder.price.numerator);
+    const den = Number(rawOrder.price.denominator);
+    const effectivePrice = den > 0 ? num / den : 0;
+    const isExpired = !!rawOrder.end && Number(rawOrder.end) <= now;
 
-        const offeredUnit = assetClassDToUnit(datum.podOfferedAsset);
-        const askedUnit = assetClassDToUnit(datum.podAskedAsset);
-
-        const num = Number(datum.podPrice.numerator);
-        const den = Number(datum.podPrice.denominator);
-        const effectivePrice = den > 0 ? num / den : 0;
-        const now = Date.now();
-        const isExpired = !!datum.podEnd && Number(datum.podEnd) <= now;
-
-        userOrders.push({
-          utxoRef: {
-            txHash: utxo.txHash,
-            outputIndex: utxo.outputIndex,
-          },
-          ownerAddress: toAddress(datum.podOwnerAddr, lucid),
-          ownerKey: datum.podOwnerKey,
-          offeredAsset: offeredUnit,
-          offeredAmount: datum.podOfferedAmount,
-          offeredOriginalAmount: datum.podOfferedOriginalAmount,
-          askedAsset: askedUnit,
-          price: {
-            numerator: datum.podPrice.numerator,
-            denominator: datum.podPrice.denominator,
-          },
-          effectivePrice,
-          orderType: offeredUnit === "lovelace" ? "bid" : "ask",
-          nftUnit,
-          depositLovelace: utxo.assets.lovelace,
-          partialFills: datum.podPartialFills,
-          start: datum.podStart,
-          end: datum.podEnd,
-          isExpired,
-          isUserOrder: true,
-        });
-      } catch {
-        // Skip
-      }
-    },
-    (current, total) => {
-      onProgress?.({
-        current,
-        total,
-        stage: `Scanning user orders (${current}/${total})`,
-        itemType: "Orders",
-      });
-    },
-    () => !!abortSignal?.aborted
-  );
+    userOrders.push({
+      utxoRef: rawOrder.utxoRef,
+      ownerAddress: rawOrder.ownerAddress,
+      ownerKey: rawOrder.ownerKey,
+      offeredAsset: rawOrder.offeredAsset,
+      offeredAmount: rawOrder.offeredAmount,
+      offeredOriginalAmount: rawOrder.offeredOriginalAmount,
+      askedAsset: rawOrder.askedAsset,
+      price: rawOrder.price,
+      effectivePrice,
+      orderType: rawOrder.offeredAsset === "lovelace" ? "bid" : "ask",
+      nftUnit: rawOrder.nftUnit,
+      depositLovelace: rawOrder.depositLovelace,
+      partialFills: rawOrder.partialFills,
+      start: rawOrder.start,
+      end: rawOrder.end,
+      isExpired,
+      isUserOrder: true,
+    });
+  }
 
   return userOrders;
 }
