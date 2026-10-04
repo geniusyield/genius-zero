@@ -1,6 +1,6 @@
 import { LucidEvolution, OutRef, UTxO } from "@lucid-evolution/lucid";
 import { DexOrder, TradingPair } from "../types";
-import { createOrder, cancelOrders } from "../contracts/api";
+import { createOrder, cancelOrders, fillOrder, myDatumOf } from "../contracts/api";
 import { RationalD } from "../contracts/contract.types";
 
 function gcd(a: bigint, b: bigint): bigint {
@@ -117,3 +117,77 @@ export async function cancelLimitOrder(
 
   return { txHash };
 }
+
+export interface FillOrderParams {
+  order: DexOrder;
+  fillAmount?: bigint; // in offered token raw units
+}
+
+export function calculateFillCost(
+  order: DexOrder,
+  fillAmount?: bigint
+): {
+  payAssetUnit: string;
+  payAmount: bigint;
+  receiveAssetUnit: string;
+  receiveAmount: bigint;
+  takerFeeLovelace: bigint;
+  isComplete: boolean;
+} {
+  const actualFill =
+    !fillAmount || fillAmount >= order.offeredAmount
+      ? order.offeredAmount
+      : fillAmount;
+
+  const isComplete = actualFill >= order.offeredAmount;
+
+  // price = (amt * num + den - 1) / den
+  const payAmt =
+    (actualFill * order.price.numerator + order.price.denominator - 1n) /
+    order.price.denominator;
+
+  return {
+    payAssetUnit: order.askedAsset,
+    payAmount: payAmt,
+    receiveAssetUnit: order.offeredAsset,
+    receiveAmount: actualFill,
+    takerFeeLovelace: 1_000_000n, // 1 ADA flat taker fee
+    isComplete,
+  };
+}
+
+export async function fillDexOrder(
+  lucid: LucidEvolution,
+  params: FillOrderParams
+): Promise<{ txHash: string }> {
+  const { order, fillAmount } = params;
+
+  const orderOutRef: OutRef = {
+    txHash: order.utxoRef.txHash,
+    outputIndex: order.utxoRef.outputIndex,
+  };
+
+  const [orderUTxO] = await lucid.utxosByOutRef([orderOutRef]);
+  if (!orderUTxO) {
+    throw new Error(
+      "Order UTxO not found on-chain. It may have already been filled or cancelled."
+    );
+  }
+
+  const orderDatum = await myDatumOf(lucid, orderUTxO);
+
+  const txBuilder = await fillOrder(
+    lucid,
+    lucid.newTx(),
+    orderUTxO,
+    orderDatum,
+    fillAmount
+  );
+
+  const completedTx = await txBuilder.complete();
+  const signedTx = await completedTx.sign.withWallet().complete();
+  const txHash = await signedTx.submit();
+
+  return { txHash };
+}
+

@@ -27,6 +27,7 @@ import {
 import {
   placeLimitOrder,
   cancelLimitOrder,
+  fillDexOrder,
   PlaceOrderParams,
 } from "../services/trade";
 
@@ -47,6 +48,7 @@ interface AppContextType {
   cancelRefreshOrderBook: () => void;
   placeOrder: (params: Omit<PlaceOrderParams, "pair">) => Promise<string>;
   cancelOrder: (order: DexOrder) => Promise<string>;
+  fillOrder: (order: DexOrder, fillAmount?: bigint) => Promise<string>;
   actionPending: boolean;
   actionMessage: string | null;
   error: string | null;
@@ -581,6 +583,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
+  // Fill Order (Partial or Complete)
+  const fillOrder = async (order: DexOrder, fillAmount?: bigint): Promise<string> => {
+    if (!lucid || !wallet.connected) {
+      throw new Error("Wallet not connected.");
+    }
+
+    setActionPending(true);
+    setActionMessage("Building order fill transaction...");
+    try {
+      const { txHash } = await fillDexOrder(lucid, {
+        order,
+        fillAmount,
+      });
+      setActionMessage(`Order filled: ${txHash.slice(0, 16)}...`);
+      setTimeout(() => refreshOrderBook(), 4000);
+      return txHash;
+    } catch (err: any) {
+      const msg = err?.message || "Failed to fill order";
+      setError(msg);
+      throw err;
+    } finally {
+      setActionPending(false);
+    }
+  };
+
   const clearError = () => setError(null);
 
   return (
@@ -602,6 +629,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         cancelRefreshOrderBook,
         placeOrder,
         cancelOrder,
+        fillOrder,
         actionPending,
         actionMessage,
         error,

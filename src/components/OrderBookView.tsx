@@ -6,10 +6,14 @@ import { ProgressBar } from "./ProgressBar";
 
 interface OrderBookViewProps {
   onSelectPrice?: (price: number, amount?: number) => void;
+  onSelectOrder?: (order: DexOrder) => void;
+  selectedOrderKey?: string | null;
 }
 
 export const OrderBookView: React.FC<OrderBookViewProps> = ({
   onSelectPrice,
+  onSelectOrder,
+  selectedOrderKey,
 }) => {
   const { orderBook, activePair, loadingOrderBook, orderBookProgress, cancelRefreshOrderBook } = useApp();
 
@@ -92,19 +96,34 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
         ) : (
           [...asksWithDepth].reverse().map((ask, idx) => {
             const depthPercent = Math.min(100, Math.round((ask.cumulative / maxAskDepth) * 100));
+            const isSelected =
+              selectedOrderKey === `${ask.utxoRef.txHash}#${ask.utxoRef.outputIndex}`;
             return (
               <div
                 key={`ask-${ask.utxoRef.txHash}-${ask.utxoRef.outputIndex}-${idx}`}
-                onClick={() => onSelectPrice?.(ask.effectivePrice, ask.amt)}
-                className="relative grid grid-cols-3 px-3 py-1 text-xs font-mono rounded cursor-pointer hover:bg-rose-500/10 transition-colors group"
+                onClick={() => {
+                  onSelectOrder?.(ask);
+                  onSelectPrice?.(ask.effectivePrice, ask.amt);
+                }}
+                className={`relative grid grid-cols-3 px-3 py-1 text-xs font-mono rounded cursor-pointer transition-all group ${
+                  isSelected
+                    ? "bg-rose-500/25 ring-1 ring-rose-400"
+                    : "hover:bg-rose-500/10"
+                }`}
+                title="Click to fill this order"
               >
                 {/* Visual Depth Bar */}
                 <div
                   className="absolute right-0 top-0 bottom-0 bg-rose-500/10 pointer-events-none rounded transition-all duration-300"
                   style={{ width: `${depthPercent}%` }}
                 />
-                <div className="relative text-rose-400 font-semibold text-left">
-                  {formatPrice(ask.effectivePrice)}
+                <div className="relative text-rose-400 font-semibold text-left flex items-center gap-1">
+                  <span>{formatPrice(ask.effectivePrice)}</span>
+                  {isSelected && (
+                    <span className="text-[9px] bg-rose-500/30 text-rose-200 px-1 py-0.5 rounded font-sans font-bold uppercase tracking-wider">
+                      Fill
+                    </span>
+                  )}
                 </div>
                 <div className="relative text-slate-300 text-right">
                   {ask.amt.toLocaleString(undefined, { maximumFractionDigits: 2 })}
@@ -159,19 +178,34 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
         ) : (
           bidsWithDepth.map((bid, idx) => {
             const depthPercent = Math.min(100, Math.round((bid.cumulative / maxBidDepth) * 100));
+            const isSelected =
+              selectedOrderKey === `${bid.utxoRef.txHash}#${bid.utxoRef.outputIndex}`;
             return (
               <div
                 key={`bid-${bid.utxoRef.txHash}-${bid.utxoRef.outputIndex}-${idx}`}
-                onClick={() => onSelectPrice?.(bid.effectivePrice, bid.amt)}
-                className="relative grid grid-cols-3 px-3 py-1 text-xs font-mono rounded cursor-pointer hover:bg-emerald-500/10 transition-colors group"
+                onClick={() => {
+                  onSelectOrder?.(bid);
+                  onSelectPrice?.(bid.effectivePrice, bid.amt);
+                }}
+                className={`relative grid grid-cols-3 px-3 py-1 text-xs font-mono rounded cursor-pointer transition-all group ${
+                  isSelected
+                    ? "bg-emerald-500/25 ring-1 ring-emerald-400"
+                    : "hover:bg-emerald-500/10"
+                }`}
+                title="Click to fill this order"
               >
                 {/* Visual Depth Bar */}
                 <div
                   className="absolute right-0 top-0 bottom-0 bg-emerald-500/10 pointer-events-none rounded transition-all duration-300"
                   style={{ width: `${depthPercent}%` }}
                 />
-                <div className="relative text-emerald-400 font-semibold text-left">
-                  {formatPrice(bid.effectivePrice)}
+                <div className="relative text-emerald-400 font-semibold text-left flex items-center gap-1">
+                  <span>{formatPrice(bid.effectivePrice)}</span>
+                  {isSelected && (
+                    <span className="text-[9px] bg-emerald-500/30 text-emerald-200 px-1 py-0.5 rounded font-sans font-bold uppercase tracking-wider">
+                      Fill
+                    </span>
+                  )}
                 </div>
                 <div className="relative text-slate-300 text-right">
                   {bid.amt.toLocaleString(undefined, { maximumFractionDigits: 2 })}

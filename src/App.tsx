@@ -9,6 +9,7 @@ import { RewardsClaimView } from "./components/RewardsClaimView";
 import { SettingsModal } from "./components/SettingsModal";
 import { WalletModal } from "./components/WalletModal";
 import { Key, Cpu, AlertTriangle } from "lucide-react";
+import { DexOrder } from "./types";
 
 function MainContent() {
   const { settings, error, clearError } = useApp();
@@ -16,6 +17,7 @@ function MainContent() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [walletOpen, setWalletOpen] = useState(false);
 
+  const [selectedOrder, setSelectedOrder] = useState<DexOrder | null>(null);
   const [selectedPrice, setSelectedPrice] = useState<number | undefined>();
   const [selectedAmount, setSelectedAmount] = useState<number | undefined>();
 
@@ -81,12 +83,22 @@ function MainContent() {
           <div className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-[580px]">
               <div className="lg:col-span-2 h-full">
-                <OrderBookView onSelectPrice={handleSelectPrice} />
+                <OrderBookView
+                  onSelectPrice={handleSelectPrice}
+                  onSelectOrder={(order) => setSelectedOrder(order)}
+                  selectedOrderKey={
+                    selectedOrder
+                      ? `${selectedOrder.utxoRef.txHash}#${selectedOrder.utxoRef.outputIndex}`
+                      : null
+                  }
+                />
               </div>
               <div className="lg:col-span-1 h-full">
                 <TradePanel
                   initialPrice={selectedPrice}
                   initialAmount={selectedAmount}
+                  selectedOrder={selectedOrder}
+                  onClearSelectedOrder={() => setSelectedOrder(null)}
                   onOpenWallet={() => setWalletOpen(true)}
                   onOpenSettings={() => setSettingsOpen(true)}
                 />

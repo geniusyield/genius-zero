@@ -26,6 +26,8 @@ import {
 } from "./contract.types";
 import {
   assetClassDFromUnit,
+  assetClassDToUnit,
+  containedFeeToAssets,
   containedFeeToAssetsM,
   expectedPaymentWithDeposit,
   expectedTokenName,
@@ -33,6 +35,7 @@ import {
   fromAssets,
   isEqualContainedFee,
   mappendAssets,
+  partialOrderPrice,
   resolveAC,
   toAddress,
   zeroContainedFee,
@@ -308,3 +311,104 @@ export const cancelOrders = async (
 
   return txAppend;
 };
+
+export const fillOrder = async (
+  lucid: LucidEvolution,
+  tx: TxBuilder,
+  orderUTxO: UTxO,
+  orderDatum: PartialOrderDatum,
+  fillAmount?: bigint
+): Promise<TxBuilder> => {
+  const isComplete = !fillAmount || fillAmount >= orderDatum.podOfferedAmount;
+  const poConstants = resolvePOConstants(lucid);
+  const [pocDatum, pocUTxO] = await fetchPartialOrderConfig(lucid);
+  const { mintUTxO, valUTxO } = await fetchRefUTxOs(lucid);
+
+  if (isComplete) {
+    const outputRef: OutputReferenceD = {
+      txHash: { hash: orderUTxO.txHash },
+      outputIndex: BigInt(orderUTxO.outputIndex),
+    };
+
+    const containedFeeValue = containedFeeToAssets(orderDatum);
+    const feeValue = mappendAssets(containedFeeValue, {
+      lovelace: orderDatum.podTakerLovelaceFlatFee,
+    });
+
+    const feeOutputDatum: PartialOrderFeeOutput = {
+      pofdMentionedFees: new Map([[outputRef, fromAssets(containedFeeValue)]]),
+      pofdReservedValue: fromAssets({}),
+      pofdSpentUTxORef: null,
+    };
+
+    const makerPaymentValue = expectedPaymentWithDeposit(
+      poConstants,
+      orderUTxO.assets,
+      orderDatum,
+      true
+    );
+
+    let completeTx = tx
+      .readFrom([pocUTxO, mintUTxO, valUTxO])
+      .collectFrom([orderUTxO], Data.to("CompleteFill", PartialOrderRedeemer))
+      .pay.ToAddressWithData(
+        toAddress(orderDatum.podOwnerAddr, lucid),
+        { kind: "inline", value: Data.to(outputRef, OutputReferenceD) },
+        makerPaymentValue
+      )
+      .mintAssets(
+        { [poConstants.mintPolicyId + orderDatum.podNFT]: -1n },
+        Data.to(null, PONftPolicyRedeemer)
+      );
+
+    if (Object.keys(feeValue).length > 0) {
+      completeTx = completeTx.pay.ToAddressWithData(
+        toAddress(pocDatum.pocdFeeAddr, lucid),
+        {
+          kind: "asHash",
+          value: Data.to(feeOutputDatum, PartialOrderFeeOutput),
+        },
+        feeValue
+      );
+    }
+
+    return completeTx.validTo(Date.now() + 2 * 60 * 60 * 1000);
+  } else {
+    if (fillAmount <= 0n) {
+      throw new Error("Fill amount must be positive.");
+    }
+
+    const askedUnit = assetClassDToUnit(orderDatum.podAskedAsset);
+    const offeredUnit = assetClassDToUnit(orderDatum.podOfferedAsset);
+    const priceObj = partialOrderPrice(orderDatum, fillAmount);
+    const priceAmt = priceObj[askedUnit] || 0n;
+
+    const updatedDatum: PartialOrderDatum = {
+      ...orderDatum,
+      podOfferedAmount: orderDatum.podOfferedAmount - fillAmount,
+      podPartialFills: orderDatum.podPartialFills + 1n,
+      podContainedFee: {
+        pocfLovelaces: orderDatum.podContainedFee.pocfLovelaces + orderDatum.podTakerLovelaceFlatFee,
+        pocfOfferedTokens: orderDatum.podContainedFee.pocfOfferedTokens,
+        pocfAskedTokens: orderDatum.podContainedFee.pocfAskedTokens,
+      },
+      podContainedPayment: orderDatum.podContainedPayment + priceAmt,
+    };
+
+    let continuingAssets = { ...orderUTxO.assets };
+    continuingAssets = mappendAssets(continuingAssets, { [askedUnit]: priceAmt });
+    continuingAssets = mappendAssets(continuingAssets, { lovelace: orderDatum.podTakerLovelaceFlatFee });
+    continuingAssets = mappendAssets(continuingAssets, { [offeredUnit]: -fillAmount });
+
+    return tx
+      .readFrom([pocUTxO, valUTxO])
+      .collectFrom([orderUTxO], Data.to({ PartialFill: [fillAmount] }, PartialOrderRedeemer))
+      .pay.ToAddressWithData(
+        orderUTxO.address,
+        { kind: "inline", value: Data.to(updatedDatum, PartialOrderDatum) },
+        continuingAssets
+      )
+      .validTo(Date.now() + 2 * 60 * 60 * 1000);
+  }
+};
+
