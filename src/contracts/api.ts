@@ -1,32 +1,31 @@
 import {
-  Address,
-  Assets,
-  Credential,
+  type Address,
+  type Assets,
+  type Credential,
   Data,
-  LucidEvolution,
-  OutRef,
-  TxBuilder,
-  UTxO,
-  Unit,
-  UnixTime,
+  type LucidEvolution,
+  type OutRef,
+  type TxBuilder,
+  type UTxO,
+  type Unit,
+  type UnixTime,
   credentialToAddress,
   paymentCredentialOf,
 } from "@lucid-evolution/lucid";
 import {
-  AssetClassD,
+  type AssetClassD,
   OutputReferenceD,
   PONftPolicyRedeemer,
   PartialOrderConfigDatum,
-  PartialOrderContainedFee,
+  type PartialOrderContainedFee,
   PartialOrderDatum,
   PartialOrderFeeOutput,
   PartialOrderRedeemer,
-  RationalD,
-  ValueD,
+  type RationalD,
+  type ValueD,
 } from "./contract.types";
 import {
   assetClassDFromUnit,
-  assetClassDToUnit,
   containedFeeToAssetsM,
   expectedPaymentWithDeposit,
   expectedTokenName,
@@ -34,12 +33,15 @@ import {
   fromAssets,
   isEqualContainedFee,
   mappendAssets,
-  partialOrderPrice,
   resolveAC,
   toAddress,
   zeroContainedFee,
 } from "./utils";
-import { PartialOrderConstants, resolvePOConstants } from "./constants";
+import {
+  type PartialOrderConstants,
+  resolvePOConstants,
+  fetchRefUTxOs,
+} from "./constants";
 
 export interface Fees {
   percentTokenFees: Assets;
@@ -150,6 +152,8 @@ export const createOrder = async (
   };
 
   const [pocDatum, pocUTxO] = await fetchPartialOrderConfig(lucid);
+  const { mintUTxO } = await fetchRefUTxOs(lucid);
+
   const makerPercentageFees =
     (offerAmt * pocDatum.pocdMakerFeeRatio.numerator) /
     pocDatum.pocdMakerFeeRatio.denominator;
@@ -187,6 +191,7 @@ export const createOrder = async (
   const datumField = inlineDat ? "inline" : "asHash";
 
   const txAppended = tx
+    .readFrom([pocUTxO, mintUTxO])
     .collectFrom([anUTxO])
     .mintAssets(
       { [nftUnit]: 1n },
@@ -198,7 +203,6 @@ export const createOrder = async (
         PONftPolicyRedeemer
       )
     )
-    .readFrom([pocUTxO, poConstants.mintUTxO])
     .pay.ToContract(
       outAddr,
       {
@@ -230,7 +234,10 @@ export const cancelOrders = async (
   );
 
   const poConstants = resolvePOConstants(lucid);
-  let txAppend = tx;
+  const [pocDatum, pocUTxO] = await fetchPartialOrderConfig(lucid);
+  const { mintUTxO, valUTxO } = await fetchRefUTxOs(lucid);
+
+  let txAppend = tx.readFrom([pocUTxO, mintUTxO, valUTxO]);
   let feeAcc: Assets = {};
   let feeMapAcc: Map<OutputReferenceD, ValueD> = new Map();
 
@@ -281,7 +288,6 @@ export const cancelOrders = async (
       );
   }
 
-  const [pocDatum, pocUTxO] = await fetchPartialOrderConfig(lucid);
   if (Object.keys(feeAcc).length > 0) {
     txAppend = txAppend.pay.ToAddressWithData(
       toAddress(pocDatum.pocdFeeAddr, lucid),
@@ -299,12 +305,6 @@ export const cancelOrders = async (
       feeAcc
     );
   }
-
-  txAppend = txAppend.readFrom([
-    poConstants.mintUTxO,
-    poConstants.valUTxO,
-    pocUTxO,
-  ]);
 
   return txAppend;
 };

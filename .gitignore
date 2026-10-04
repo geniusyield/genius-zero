@@ -26,5 +26,6 @@ dist-ssr
 
 # Environment variables
 .env
-.env.production
-.env.development
+.env.*
+!.env.example
+test-wallet*.json

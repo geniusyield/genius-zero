@@ -93,7 +93,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       const saved = localStorage.getItem(SETTINGS_STORAGE_KEY);
       if (saved) {
-        return { ...defaultSettings, ...JSON.parse(saved) };
+        const parsed = JSON.parse(saved);
+        const merged: AppSettings = { ...defaultSettings, ...parsed };
+        // Normalize keys if one was previously stored in blockfrostApiKey
+        if (!merged.blockfrostApiKeyMainnet && merged.blockfrostApiKey?.startsWith("mainnet")) {
+          merged.blockfrostApiKeyMainnet = merged.blockfrostApiKey;
+        }
+        if (!merged.blockfrostApiKeyPreprod && merged.blockfrostApiKey?.startsWith("preprod")) {
+          merged.blockfrostApiKeyPreprod = merged.blockfrostApiKey;
+        }
+        // Ensure active key matches the current network
+        merged.blockfrostApiKey =
+          merged.network === "mainnet"
+            ? (merged.blockfrostApiKeyMainnet || "")
+            : (merged.blockfrostApiKeyPreprod || "");
+        return merged;
       }
     } catch {
       // ignore
@@ -118,9 +132,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   // Save settings on update
   const updateSettings = (newSettings: Partial<AppSettings>) => {
     setSettings((prev) => {
-      let updated = { ...prev, ...newSettings };
+      let updated: AppSettings = { ...prev, ...newSettings };
 
-      // If blockfrostApiKey was provided, save into the network-specific slot
+      // Handle explicit mainnet key updates
+      if (newSettings.blockfrostApiKeyMainnet !== undefined) {
+        updated.blockfrostApiKeyMainnet = newSettings.blockfrostApiKeyMainnet.trim();
+      }
+      // Handle explicit preprod key updates
+      if (newSettings.blockfrostApiKeyPreprod !== undefined) {
+        updated.blockfrostApiKeyPreprod = newSettings.blockfrostApiKeyPreprod.trim();
+      }
+
+      // Backwards compatibility: if legacy blockfrostApiKey was passed directly
       if (newSettings.blockfrostApiKey !== undefined) {
         const key = newSettings.blockfrostApiKey.trim();
         if (key.startsWith("mainnet")) {
@@ -130,22 +153,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       }
 
-      // If switching network, auto-populate active key from network-specific slot if present
-      if (newSettings.network && newSettings.network !== prev.network) {
-        if (newSettings.network === "mainnet") {
-          updated.blockfrostApiKey =
-            updated.blockfrostApiKeyMainnet ||
-            (updated.blockfrostApiKey.startsWith("mainnet")
-              ? updated.blockfrostApiKey
-              : "");
-        } else if (newSettings.network === "preprod") {
-          updated.blockfrostApiKey =
-            updated.blockfrostApiKeyPreprod ||
-            (updated.blockfrostApiKey.startsWith("preprod")
-              ? updated.blockfrostApiKey
-              : "");
-        }
-      }
+      // Ensure active blockfrostApiKey matches active network
+      const activeNetwork = updated.network || "mainnet";
+      updated.blockfrostApiKey =
+        activeNetwork === "mainnet"
+          ? (updated.blockfrostApiKeyMainnet || "")
+          : (updated.blockfrostApiKeyPreprod || "");
 
       try {
         localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(updated));
@@ -213,6 +226,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     setWallet((prev) => ({ ...prev, connecting: true, error: null }));
     try {
       const details = await connectWallet(lucid, walletId);
+
+      // Verify wallet network matches app settings network
+      const isTestnetAddr = details.address.startsWith("addr_test1");
+      const isMainnetAddr = details.address.startsWith("addr1");
+      if (settings.network === "mainnet" && isTestnetAddr) {
+        throw new Error(
+          "Network mismatch: Your wallet is connected to Cardano Testnet, but Genius Zero is set to Mainnet. Please switch your wallet network to Mainnet."
+        );
+      } else if (settings.network === "preprod" && isMainnetAddr) {
+        throw new Error(
+          "Network mismatch: Your wallet is connected to Cardano Mainnet, but Genius Zero is set to Preprod Testnet. Please switch your wallet network/account to Preprod."
+        );
+      }
+
       setWallet({
         connected: true,
         connecting: false,

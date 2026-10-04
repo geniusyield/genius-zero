@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { X, Key, Globe, Clock, Shield, ExternalLink, Check, Database } from "lucide-react";
+import { X, Key, Globe, Clock, Shield, ExternalLink, Check, Database, Eye, EyeOff } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { NetworkType } from "../types";
 import { getCacheStats, clearCardanoCache } from "../services/cache";
@@ -24,6 +24,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     settings.blockfrostApiKeyPreprod ||
       (settings.network === "preprod" ? settings.blockfrostApiKey : "")
   );
+  const [showMainnetKey, setShowMainnetKey] = useState(false);
+  const [showPreprodKey, setShowPreprodKey] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(settings.autoRefreshInterval);
   const [saved, setSaved] = useState(false);
   const [cacheStats, setCacheStats] = useState({ datums: 0, transactions: 0, tokens: 0 });
@@ -57,20 +59,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   if (!isOpen) return null;
 
-  const currentKey = network === "mainnet" ? apiKeyMainnet : apiKeyPreprod;
-  const setCurrentKey = (val: string) => {
-    if (network === "mainnet") {
-      setApiKeyMainnet(val);
-    } else {
-      setApiKeyPreprod(val);
-    }
-  };
-
   const handleSave = () => {
-    const activeKey = network === "mainnet" ? apiKeyMainnet.trim() : apiKeyPreprod.trim();
     updateSettings({
       network,
-      blockfrostApiKey: activeKey,
       blockfrostApiKeyMainnet: apiKeyMainnet.trim(),
       blockfrostApiKeyPreprod: apiKeyPreprod.trim(),
       autoRefreshInterval: autoRefresh,
@@ -84,9 +75,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="bg-[#121824] border border-[#1f2d44] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-[#121824] border border-[#1f2d44] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[92vh]">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#1f2d44]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#1f2d44] shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
               <Key className="w-5 h-5" />
@@ -105,14 +96,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Body */}
-        <div className="p-6 space-y-6">
+        <div className="p-6 space-y-6 overflow-y-auto">
           {/* Security Notice */}
           <div className="flex items-start gap-3 p-3.5 rounded-xl bg-sky-950/30 border border-sky-800/40 text-sky-300 text-xs">
             <Shield className="w-4 h-4 shrink-0 mt-0.5" />
             <div>
               <span className="font-semibold">Client-Side Privacy Guarantee: </span>
-              Your API key is stored exclusively in your browser's <code className="bg-sky-900/40 px-1 py-0.5 rounded text-[11px]">localStorage</code>.
-              It is never sent to any central backend or third party.
+              Your API keys are stored exclusively in your browser's <code className="bg-sky-900/40 px-1 py-0.5 rounded text-[11px]">localStorage</code>.
+              They are never sent to any central backend or third party.
             </div>
           </div>
 
@@ -120,7 +111,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div className="space-y-2">
             <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
               <Globe className="w-3.5 h-3.5 text-slate-400" />
-              Cardano Network
+              Active Cardano Network
             </label>
             <div className="grid grid-cols-2 gap-3">
               <button
@@ -145,18 +136,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     : "bg-[#182234] border-[#1f2d44] text-slate-400 hover:border-slate-600"
                 }`}
               >
-                <span className={`w-2 h-2 rounded-full ${network === "preprod" ? "bg-amber-400" : "bg-slate-500"}`}></span>
+                <span className={`w-2 h-2 rounded-full ${network === "preprod" ? "bg-amber-400 animate-pulse" : "bg-slate-500"}`}></span>
                 Preprod Testnet
               </button>
             </div>
           </div>
 
-          {/* Blockfrost Project Key */}
-          <div className="space-y-2">
+          {/* Blockfrost Project Keys */}
+          <div className="space-y-4">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                 <Key className="w-3.5 h-3.5 text-slate-400" />
-                Blockfrost Project Key
+                Blockfrost Project Keys
               </label>
               <a
                 href="https://blockfrost.io"
@@ -167,16 +158,90 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 Get free key <ExternalLink className="w-3 h-3" />
               </a>
             </div>
-            <input
-              type="password"
-              value={currentKey}
-              onChange={(e) => setCurrentKey(e.target.value)}
-              placeholder={network === "mainnet" ? "mainnet..." : "preprod..."}
-              className="w-full px-4 py-2.5 rounded-xl bg-[#0b0e14] border border-[#1f2d44] text-white text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 transition-colors"
-            />
-            <p className="text-[11px] text-slate-400">
-              Matches your selected network. e.g. starts with <code className="text-slate-300">mainnet</code> for Mainnet or <code className="text-slate-300">preprod</code> for Preprod.
-            </p>
+
+            {/* Mainnet Key Field */}
+            <div className={`p-3.5 rounded-xl border transition-colors space-y-2 ${
+              network === "mainnet"
+                ? "bg-[#101827] border-emerald-500/40"
+                : "bg-[#0f141f] border-[#1f2d44]"
+            }`}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-300 flex items-center gap-2">
+                  <span>Mainnet API Key</span>
+                  {network === "mainnet" ? (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      Active
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-slate-500">
+                      (Standby)
+                    </span>
+                  )}
+                </span>
+                <span className="text-[11px] text-slate-500 font-mono">starts with mainnet...</span>
+              </div>
+              <div className="relative">
+                <input
+                  type={showMainnetKey ? "text" : "password"}
+                  value={apiKeyMainnet}
+                  onChange={(e) => setApiKeyMainnet(e.target.value)}
+                  placeholder="mainnet..."
+                  className="w-full pl-3.5 pr-10 py-2 rounded-lg bg-[#070a0f] border border-[#1f2d44] text-white text-xs font-mono placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowMainnetKey(!showMainnetKey)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 p-1"
+                >
+                  {showMainnetKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-400">
+                Used for mainnet trading, staking vaults, and rewards claiming.
+              </p>
+            </div>
+
+            {/* Preprod Testnet Key Field */}
+            <div className={`p-3.5 rounded-xl border transition-colors space-y-2 ${
+              network === "preprod"
+                ? "bg-[#1a1813] border-amber-500/40"
+                : "bg-[#0f141f] border-[#1f2d44]"
+            }`}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-300 flex items-center gap-2">
+                  <span>Preprod Testnet Key</span>
+                  {network === "preprod" ? (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                      Active
+                    </span>
+                  ) : (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400">
+                      Optional
+                    </span>
+                  )}
+                </span>
+                <span className="text-[11px] text-slate-500 font-mono">starts with preprod...</span>
+              </div>
+              <div className="relative">
+                <input
+                  type={showPreprodKey ? "text" : "password"}
+                  value={apiKeyPreprod}
+                  onChange={(e) => setApiKeyPreprod(e.target.value)}
+                  placeholder="preprod..."
+                  className="w-full pl-3.5 pr-10 py-2 rounded-lg bg-[#070a0f] border border-[#1f2d44] text-white text-xs font-mono placeholder:text-slate-600 focus:outline-none focus:border-amber-500 transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPreprodKey(!showPreprodKey)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 p-1"
+                >
+                  {showPreprodKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-400">
+                Optional. Only needed when developing or running DEX integration tests on Cardano Preprod.
+              </p>
+            </div>
           </div>
 
           {/* Auto Refresh Interval */}

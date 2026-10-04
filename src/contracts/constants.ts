@@ -1,10 +1,11 @@
-import {
+import type {
   Address,
   Credential,
   PolicyId,
   UTxO,
   Unit,
   LucidEvolution,
+  OutRef,
 } from "@lucid-evolution/lucid";
 
 export interface PartialOrderConstants {
@@ -88,6 +89,8 @@ export const poConstants: {
   },
 };
 
+const refUTxOsCache = new Map<string, { mintUTxO: UTxO; valUTxO: UTxO }>();
+
 export function resolvePOConstants(
   lucid: LucidEvolution
 ): PartialOrderConstants {
@@ -100,3 +103,50 @@ export function resolvePOConstants(
     throw new Error(`Unsupported network: ${nid}`);
   }
 }
+
+/**
+ * Resolves live reference script UTxOs from the blockchain.
+ * Caches them in memory so they only need to be queried once per session.
+ */
+export async function fetchRefUTxOs(
+  lucid: LucidEvolution
+): Promise<{ mintUTxO: UTxO; valUTxO: UTxO }> {
+  const nid = lucid.config().network;
+  const cached = refUTxOsCache.get(nid);
+  if (cached && cached.mintUTxO.scriptRef && cached.valUTxO.scriptRef) {
+    return cached;
+  }
+
+  const po = resolvePOConstants(lucid);
+  const outRefs: OutRef[] = [
+    { txHash: po.mintUTxO.txHash, outputIndex: po.mintUTxO.outputIndex },
+    { txHash: po.valUTxO.txHash, outputIndex: po.valUTxO.outputIndex },
+  ];
+
+  const fetched = await lucid.utxosByOutRef(outRefs);
+  const mintUTxO = fetched.find(
+    (u) =>
+      u.txHash === po.mintUTxO.txHash &&
+      u.outputIndex === po.mintUTxO.outputIndex
+  );
+  const valUTxO = fetched.find(
+    (u) =>
+      u.txHash === po.valUTxO.txHash &&
+      u.outputIndex === po.valUTxO.outputIndex
+  );
+
+  if (!mintUTxO || !valUTxO) {
+    throw new Error(
+      `Failed to fetch reference script UTxOs for network ${nid}: mintUTxO=${!!mintUTxO}, valUTxO=${!!valUTxO}`
+    );
+  }
+
+  // Update in-memory constants with live UTxOs
+  po.mintUTxO = mintUTxO;
+  po.valUTxO = valUTxO;
+
+  const result = { mintUTxO, valUTxO };
+  refUTxOsCache.set(nid, result);
+  return result;
+}
+
