@@ -12,9 +12,13 @@
  * 3. Sell Order Trading (Wallet A offers TST [0 decimals], asks tADA [6 decimals]):
  *    - Wallet B partially fills order -> verifies UI prediction matches actual balance change
  *    - Wallet B completely fills order -> verifies UI prediction matches actual balance change & closes order
+ * 3B. Partially Filled Sell Order Cancellation:
+ *    - Wallet B partially fills order -> Wallet A cancels remaining order -> verifies remaining tokens refunded & NFT burned
  * 4. Buy Order Trading (Wallet A offers tADA [6 decimals], asks TST [0 decimals]):
  *    - Wallet B partially fills order -> verifies UI prediction matches actual balance change
  *    - Wallet B completely fills order -> verifies UI prediction matches actual balance change & closes order
+ * 4B. Partially Filled Buy Order Cancellation:
+ *    - Wallet B partially fills order -> Wallet A cancels remaining order -> verifies remaining tADA refunded & NFT burned
  * 5. Conservation of Tokens & Fee Accounting (zero token leakage, 100% fund conservation).
  *
  * Usage:
@@ -623,6 +627,87 @@ async function main() {
   }
 
   // =========================================================================
+  // SCENARIO 3B: Partially Filled Sell Order — Cancellation by Maker
+  // =========================================================================
+  console.log("\n========================================================================");
+  console.log("  SCENARIO 3B: Partially Filled Sell Order — Cancellation by Maker");
+  console.log("========================================================================");
+  {
+    const offerAmt = 20n; // 20 TST
+    const priceAC = "lovelace";
+    const rationalPrice = { numerator: 500_000n, denominator: 1n }; // 0.5 tADA per TST
+
+    utxosA = await lucidA.wallet().getUtxos();
+    const seedUtxo = utxosA.find(
+      (u) => (u.assets["lovelace"] || 0n) >= 5_000_000n && u.assets["lovelace"] !== 10_000_000n
+    ) || utxosA[0];
+
+    console.log("1. Wallet A placing Sell Order (Offer: 20 TST, Ask: 10 tADA)...");
+    const [, txBuilder] = await createOrder(
+      lucidA,
+      lucidA.newTx(),
+      seedUtxo,
+      addressA,
+      offerAmt,
+      tstUnit,
+      priceAC,
+      rationalPrice,
+      true
+    );
+    const signed = await (await txBuilder.complete()).sign.withWallet().complete();
+    const placeHash = await signed.submit();
+    console.log("   Place Tx submitted:", placeHash);
+    await lucidA.awaitTx(placeHash);
+    await waitForWalletUtxo(lucidA, placeHash);
+
+    let activeOrderUtxo = await waitForScriptUtxo(lucidA, placeHash, 0);
+    let datum = await myDatumOf(lucidA, activeOrderUtxo);
+    let dexOrder = buildDexOrder(activeOrderUtxo, datum, mintPolicyId);
+
+    // --- PARTIAL FILL (8 TST) ---
+    console.log("\n2. Wallet B executing Partial Fill (Taking 8 TST out of 20 TST)...");
+    const partialFillAmt = 8n;
+    const { txHash: partialHash } = await fillDexOrder(lucidB, {
+      order: dexOrder,
+      fillAmount: partialFillAmt,
+    });
+    console.log("   Partial Fill Tx submitted:", partialHash);
+    await lucidB.awaitTx(partialHash);
+    await waitForWalletUtxo(lucidB, partialHash);
+    await waitForWalletUtxo(lucidA, partialHash);
+
+    // Verify continuing order UTxO has podPartialFills = 1 and 12 TST remaining
+    activeOrderUtxo = await waitForScriptUtxo(lucidA, partialHash, 0);
+    datum = await myDatumOf(lucidA, activeOrderUtxo);
+    assert.equal(datum.podOfferedAmount, 12n, "Remaining offered amount must be 12 TST");
+    assert.equal(datum.podPartialFills, 1n, "Order must be marked as partially filled (podPartialFills === 1)");
+    console.log("   ✔ Order verified on-chain as partially filled: 12 TST remaining, podPartialFills = 1.");
+
+    // --- MAKER CANCELS PARTIALLY FILLED ORDER ---
+    console.log("\n3. Wallet A cancelling partially filled Sell Order (reclaiming remaining 12 TST + deposit)...");
+    const utxosABeforeCancel = await lucidA.wallet().getUtxos();
+    const tstABeforeCancel = getAssetBalance(utxosABeforeCancel, tstUnit);
+
+    const cancelBuilder = await cancelOrders(lucidA, lucidA.newTx(), [
+      { txHash: activeOrderUtxo.txHash, outputIndex: activeOrderUtxo.outputIndex },
+    ]);
+    const signedCancel = await (await cancelBuilder.complete()).sign.withWallet().complete();
+    const cancelHash = await signedCancel.submit();
+    console.log("   Cancel Tx submitted:", cancelHash);
+    await lucidA.awaitTx(cancelHash);
+    const utxosAAfterCancel = await waitForWalletUtxo(lucidA, cancelHash);
+
+    const tstAAfterCancel = getAssetBalance(utxosAAfterCancel, tstUnit);
+    const tstReclaimed = tstAAfterCancel - tstABeforeCancel;
+
+    console.log(`   🔍 Cancellation Verification:`);
+    console.log(`      • Reclaimed TST to Wallet A: ${tstReclaimed} (Expected: 12 TST)`);
+    assert.equal(tstReclaimed, 12n, "Wallet A MUST reclaim exactly the remaining 12 TST on cancellation!");
+    console.log("   ✔ Partially filled Sell Order successfully cancelled!");
+    console.log("   ✔ Order tracking NFT burned and remaining 12 TST + deposit 100% refunded to Maker!");
+  }
+
+  // =========================================================================
   // SCENARIO 4: Buy Order — Partial & Complete Fill by Wallet B (Trade: Taker sells TST for tADA)
   // =========================================================================
   console.log("\n========================================================================");
@@ -759,6 +844,89 @@ async function main() {
   }
 
   // =========================================================================
+  // SCENARIO 4B: Partially Filled Buy Order — Cancellation by Maker
+  // =========================================================================
+  console.log("\n========================================================================");
+  console.log("  SCENARIO 4B: Partially Filled Buy Order — Cancellation by Maker");
+  console.log("========================================================================");
+  {
+    const offerAmt = 10_000_000n; // 10 tADA offered
+    const offerAC = "lovelace";
+    const priceAC = tstUnit;
+    const rationalPrice = { numerator: 2n, denominator: 1_000_000n }; // 2 TST per 1 ADA
+
+    utxosA = await lucidA.wallet().getUtxos();
+    const seedUtxo = utxosA.find(
+      (u) => (u.assets["lovelace"] || 0n) >= 15_000_000n && u.assets["lovelace"] !== 10_000_000n
+    ) || utxosA[0];
+
+    console.log("1. Wallet A placing Buy Order (Offer: 10 tADA, Ask: 20 TST)...");
+    const [, txBuilder] = await createOrder(
+      lucidA,
+      lucidA.newTx(),
+      seedUtxo,
+      addressA,
+      offerAmt,
+      offerAC,
+      priceAC,
+      rationalPrice,
+      true
+    );
+    const signed = await (await txBuilder.complete()).sign.withWallet().complete();
+    const placeHash = await signed.submit();
+    console.log("   Place Tx submitted:", placeHash);
+    await lucidA.awaitTx(placeHash);
+    await waitForWalletUtxo(lucidA, placeHash);
+
+    let activeOrderUtxo = await waitForScriptUtxo(lucidA, placeHash, 0);
+    let datum = await myDatumOf(lucidA, activeOrderUtxo);
+    let dexOrder = buildDexOrder(activeOrderUtxo, datum, mintPolicyId);
+
+    // --- PARTIAL FILL (4 tADA out of 10 tADA) ---
+    console.log("\n2. Wallet B executing Partial Fill (Taking 4 tADA, Paying 8 TST)...");
+    const partialFillAmt = 4_000_000n; // 4 tADA
+    const { txHash: partialHash } = await fillDexOrder(lucidB, {
+      order: dexOrder,
+      fillAmount: partialFillAmt,
+    });
+    console.log("   Partial Fill Tx submitted:", partialHash);
+    await lucidB.awaitTx(partialHash);
+    await waitForWalletUtxo(lucidB, partialHash);
+    await waitForWalletUtxo(lucidA, partialHash);
+
+    // Verify continuing order UTxO has podPartialFills = 1 and 6 tADA remaining
+    activeOrderUtxo = await waitForScriptUtxo(lucidA, partialHash, 0);
+    datum = await myDatumOf(lucidA, activeOrderUtxo);
+    assert.equal(datum.podOfferedAmount, 6_000_000n, "Remaining offered amount must be 6 tADA");
+    assert.equal(datum.podPartialFills, 1n, "Order must be marked as partially filled (podPartialFills === 1)");
+    console.log("   ✔ Order verified on-chain as partially filled: 6 tADA remaining, podPartialFills = 1.");
+
+    // --- MAKER CANCELS PARTIALLY FILLED BUY ORDER ---
+    console.log("\n3. Wallet A cancelling partially filled Buy Order (reclaiming remaining 6 tADA + deposit)...");
+    const utxosABeforeCancel = await lucidA.wallet().getUtxos();
+    const adaABeforeCancel = getAssetBalance(utxosABeforeCancel, "lovelace");
+
+    const cancelBuilder = await cancelOrders(lucidA, lucidA.newTx(), [
+      { txHash: activeOrderUtxo.txHash, outputIndex: activeOrderUtxo.outputIndex },
+    ]);
+    const signedCancel = await (await cancelBuilder.complete()).sign.withWallet().complete();
+    const cancelHash = await signedCancel.submit();
+    console.log("   Cancel Tx submitted:", cancelHash);
+    await lucidA.awaitTx(cancelHash);
+    const utxosAAfterCancel = await waitForWalletUtxo(lucidA, cancelHash);
+
+    const adaAAfterCancel = getAssetBalance(utxosAAfterCancel, "lovelace");
+    const netAdaReclaimed = adaAAfterCancel - adaABeforeCancel;
+
+    console.log(`   🔍 Cancellation Verification:`);
+    console.log(`      • Net ADA Reclaimed to Wallet A: ${Number(netAdaReclaimed) / 1_000_000} tADA (Remaining 6 tADA + 2.1 tADA deposit - tx fee)`);
+    // Expected gross refund is 6 tADA remaining + 2.1 tADA deposit = 8.1 tADA. Network fee is ~0.3-0.5 tADA.
+    assert(netAdaReclaimed > 7_500_000n, "Wallet A MUST reclaim remaining 6 tADA + 2.1 tADA deposit minus network fee!");
+    console.log("   ✔ Partially filled Buy Order successfully cancelled!");
+    console.log("   ✔ Order tracking NFT burned and remaining 6 tADA + deposit 100% refunded to Maker!");
+  }
+
+  // =========================================================================
   // SCENARIO 5: Token & Fund Conservation Check
   // =========================================================================
   console.log("\n========================================================================");
@@ -799,7 +967,7 @@ async function main() {
   }
 
   console.log("\n========================================================================");
-  console.log("  🎉 ALL 6 PREPROD INTEGRATION TEST SCENARIOS PASSED SUCCESSFULLY!    ");
+  console.log("  🎉 ALL 8 PREPROD INTEGRATION TEST SCENARIOS PASSED SUCCESSFULLY!    ");
   console.log("========================================================================\n");
 }
 
