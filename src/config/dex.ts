@@ -92,62 +92,118 @@ export const TADA_TOKEN: TokenInfo = {
   icon: "https://assets.coingecko.com/coins/images/975/standard/cardano.png",
 };
 
+export const GENS_MAINNET_TOKEN: TokenInfo = {
+  unit: "dda5fdb1002f7389b33e036b6afee82a8189becb6cba852e8b79b4fb0014df1047454e53",
+  policyId: "dda5fdb1002f7389b33e036b6afee82a8189becb6cba852e8b79b4fb",
+  assetName: "0014df1047454e53",
+  symbol: "GENS",
+  name: "Genius Yield",
+  decimals: 6,
+  icon: "https://raw.githubusercontent.com/cardano-foundation/cardano-token-registry/master/mappings/dda5fdb1002f7389b33e036b6a5cc41a4e410b33e8b5604dda49c8a947454e53.png",
+};
+
+export const GENSX_MAINNET_TOKEN: TokenInfo = {
+  unit: "fbae99b8679369079a7f6f0da14a2cf1c2d6bfd3afdf3a96a64ab67a0014df1047454e5358",
+  policyId: "fbae99b8679369079a7f6f0da14a2cf1c2d6bfd3afdf3a96a64ab67a",
+  assetName: "0014df1047454e5358",
+  symbol: "GENSX",
+  name: "Genius X",
+  decimals: 6,
+  icon: "https://assets.coingecko.com/coins/images/28912/standard/GENS_200x200.png",
+};
+
+export const SNEK_MAINNET_TOKEN: TokenInfo = {
+  unit: "279c909f348e533da5808898f87f9a14bb2c3dfbbacccd631d927a3f534e454b",
+  policyId: "279c909f348e533da5808898f87f9a14bb2c3dfbbacccd631d927a3f",
+  assetName: "534e454b",
+  symbol: "SNEK",
+  name: "Snek",
+  decimals: 0,
+  icon: "https://assets.coingecko.com/coins/images/30396/standard/snek.png",
+};
+
+export const USDM_MAINNET_TOKEN: TokenInfo = {
+  unit: "c48cbb3d5e57ed56e276bc45f99ab39abe94e6cd7ac39fb402da47ad0014df105553444d",
+  policyId: "c48cbb3d5e57ed56e276bc45f99ab39abe94e6cd7ac39fb402da47ad",
+  assetName: "0014df105553444d",
+  symbol: "USDM",
+  name: "Moneta USDM",
+  decimals: 6,
+  icon: "https://assets.coingecko.com/coins/images/36224/standard/usdm.png",
+};
+
+export const HOSKY_MAINNET_TOKEN: TokenInfo = {
+  unit: "a0028f350aaabe0545fdcb56b039bfb08e4bb4d8c4d7c3c7d481c235484f534b59",
+  policyId: "a0028f350aaabe0545fdcb56b039bfb08e4bb4d8c4d7c3c7d481c235",
+  assetName: "484f534b59",
+  symbol: "HOSKY",
+  name: "HOSKY Token",
+  decimals: 0,
+  icon: "https://assets.coingecko.com/coins/images/20427/standard/hosky.png",
+};
+
+export const DJED_MAINNET_TOKEN: TokenInfo = {
+  unit: "8db269c3ec630e06ae29f74bc39edd1f87c819f1056206e879a1cd61446a65644d6963726f555344",
+  policyId: "8db269c3ec630e06ae29f74bc39edd1f87c819f1056206e879a1cd61",
+  assetName: "446a65644d6963726f555344",
+  symbol: "DJED",
+  name: "Djed USD",
+  decimals: 6,
+  icon: "https://assets.coingecko.com/coins/images/28905/standard/djed.png",
+};
+
+export const IAG_MAINNET_TOKEN: TokenInfo = {
+  unit: "5d16cc1a177b5d9ba9cfa9793b07e60f1fb70fea1f8aef064415d114494147",
+  policyId: "5d16cc1a177b5d9ba9cfa9793b07e60f1fb70fea1f8aef064415d114",
+  assetName: "494147",
+  symbol: "IAG",
+  name: "Iagon",
+  decimals: 6,
+  icon: "https://assets.coingecko.com/coins/images/17342/standard/iagon.png",
+};
+
+export const NMKR_MAINNET_TOKEN: TokenInfo = {
+  unit: "5dac8536653edc12f6f5e1045d8164b9f59998d3bdc300fc928434894e4d4b52",
+  policyId: "5dac8536653edc12f6f5e1045d8164b9f59998d3bdc300fc92843489",
+  assetName: "4e4d4b52",
+  symbol: "NMKR",
+  name: "NMKR",
+  decimals: 6,
+  icon: "https://assets.coingecko.com/coins/images/25895/standard/nmkr.png",
+};
+
+export const INDY_MAINNET_TOKEN: TokenInfo = {
+  unit: "533bb94a88614e341565774319fe0b8388500a3276996868f4e55d65494e4459",
+  policyId: "533bb94a88614e341565774319fe0b8388500a3276996868f4e55d65",
+  assetName: "494e4459",
+  symbol: "INDY",
+  name: "Indigo Protocol",
+  decimals: 6,
+  icon: "https://assets.coingecko.com/coins/images/28271/standard/indigo.png",
+};
+
+export const IBTC_MAINNET_TOKEN: TokenInfo = {
+  unit: "f66d78b4a3cb3d37afa0ec36461e51ecbde00f26c8f0a68f94b6988069425443",
+  policyId: "f66d78b4a3cb3d37afa0ec36461e51ecbde00f26c8f0a68f94b69880",
+  assetName: "69425443",
+  symbol: "iBTC",
+  name: "Indigo iBTC",
+  decimals: 6,
+  icon: "https://assets.coingecko.com/coins/images/28272/standard/iBTC.png",
+};
+
 export const DEFAULT_MAINNET_TOKENS: TokenInfo[] = [
   ADA_TOKEN,
-  {
-    unit: "dda5fdb1002f7389b33e036b6a5cc41a4e410b33e8b5604dda49c8a947454e53",
-    policyId: "dda5fdb1002f7389b33e036b6a5cc41a4e410b33e8b5604dda49c8a9",
-    assetName: "47454e53",
-    symbol: "GENS",
-    name: "Genius Yield",
-    decimals: 6,
-    icon: "https://raw.githubusercontent.com/cardano-foundation/cardano-token-registry/master/mappings/dda5fdb1002f7389b33e036b6a5cc41a4e410b33e8b5604dda49c8a947454e53.png",
-  },
-  {
-    unit: "279c909f348e533da5808898f87f5a14bbd2373aec8c23f5b7830003534e454b",
-    policyId: "279c909f348e533da5808898f87f5a14bbd2373aec8c23f5b7830003",
-    assetName: "534e454b",
-    symbol: "SNEK",
-    name: "Snek",
-    decimals: 0,
-    icon: "https://assets.coingecko.com/coins/images/30396/standard/snek.png",
-  },
-  {
-    unit: "5dac8536653edc1c802113a017835dd88367656eb655d809312642bc4e4d4b52",
-    policyId: "5dac8536653edc1c802113a017835dd88367656eb655d809312642bc",
-    assetName: "4e4d4b52",
-    symbol: "NMKR",
-    name: "NMKR",
-    decimals: 6,
-    icon: "https://assets.coingecko.com/coins/images/25895/standard/nmkr.png",
-  },
-  {
-    unit: "5d16cc1a177b5d9ba9cfa9793b07e60f1fb70fea1f8a23aaa61804aa494147",
-    policyId: "5d16cc1a177b5d9ba9cfa9793b07e60f1fb70fea1f8a23aaa61804aa",
-    assetName: "494147",
-    symbol: "IAG",
-    name: "Iagon",
-    decimals: 6,
-    icon: "https://assets.coingecko.com/coins/images/17342/standard/iagon.png",
-  },
-  {
-    unit: "8db269c3ec63c412c40f60165218a654eee9a521497982f408eaa371444a4544",
-    policyId: "8db269c3ec63c412c40f60165218a654eee9a521497982f408eaa371",
-    assetName: "444a4544",
-    symbol: "DJED",
-    name: "Djed Stablecoin",
-    decimals: 6,
-    icon: "https://assets.coingecko.com/coins/images/28905/standard/djed.png",
-  },
-  {
-    unit: "533bb94a88614e341565774319fe0b8388500a3276996868f4e55d65494e4459",
-    policyId: "533bb94a88614e341565774319fe0b8388500a3276996868f4e55d65",
-    assetName: "494e4459",
-    symbol: "INDY",
-    name: "Indigo Protocol",
-    decimals: 6,
-    icon: "https://assets.coingecko.com/coins/images/28271/standard/indigo.png",
-  },
+  GENS_MAINNET_TOKEN,
+  GENSX_MAINNET_TOKEN,
+  SNEK_MAINNET_TOKEN,
+  USDM_MAINNET_TOKEN,
+  HOSKY_MAINNET_TOKEN,
+  DJED_MAINNET_TOKEN,
+  IAG_MAINNET_TOKEN,
+  NMKR_MAINNET_TOKEN,
+  INDY_MAINNET_TOKEN,
+  IBTC_MAINNET_TOKEN,
 ];
 
 export const DEFAULT_PREPROD_TOKENS: TokenInfo[] = [
@@ -166,27 +222,57 @@ export const DEFAULT_PREPROD_TOKENS: TokenInfo[] = [
 export const DEFAULT_MAINNET_TRADING_PAIRS: TradingPair[] = [
   {
     id: "GENS-ADA",
-    baseToken: DEFAULT_MAINNET_TOKENS[1], // GENS
+    baseToken: GENS_MAINNET_TOKEN,
+    quoteToken: ADA_TOKEN,
+  },
+  {
+    id: "GENS-USDM",
+    baseToken: GENS_MAINNET_TOKEN,
+    quoteToken: USDM_MAINNET_TOKEN,
+  },
+  {
+    id: "GENSX-ADA",
+    baseToken: GENSX_MAINNET_TOKEN,
     quoteToken: ADA_TOKEN,
   },
   {
     id: "SNEK-ADA",
-    baseToken: DEFAULT_MAINNET_TOKENS[2], // SNEK
+    baseToken: SNEK_MAINNET_TOKEN,
     quoteToken: ADA_TOKEN,
   },
   {
-    id: "IAG-ADA",
-    baseToken: DEFAULT_MAINNET_TOKENS[4], // IAG
+    id: "USDM-ADA",
+    baseToken: USDM_MAINNET_TOKEN,
+    quoteToken: ADA_TOKEN,
+  },
+  {
+    id: "HOSKY-ADA",
+    baseToken: HOSKY_MAINNET_TOKEN,
     quoteToken: ADA_TOKEN,
   },
   {
     id: "DJED-ADA",
-    baseToken: DEFAULT_MAINNET_TOKENS[5], // DJED
+    baseToken: DJED_MAINNET_TOKEN,
+    quoteToken: ADA_TOKEN,
+  },
+  {
+    id: "IAG-ADA",
+    baseToken: IAG_MAINNET_TOKEN,
+    quoteToken: ADA_TOKEN,
+  },
+  {
+    id: "NMKR-ADA",
+    baseToken: NMKR_MAINNET_TOKEN,
+    quoteToken: ADA_TOKEN,
+  },
+  {
+    id: "iBTC-ADA",
+    baseToken: IBTC_MAINNET_TOKEN,
     quoteToken: ADA_TOKEN,
   },
   {
     id: "INDY-ADA",
-    baseToken: DEFAULT_MAINNET_TOKENS[6], // INDY
+    baseToken: INDY_MAINNET_TOKEN,
     quoteToken: ADA_TOKEN,
   },
 ];
