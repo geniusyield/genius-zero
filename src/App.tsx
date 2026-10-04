@@ -8,10 +8,10 @@ import { StakingView } from "./components/StakingView";
 import { RewardsClaimView } from "./components/RewardsClaimView";
 import { SettingsModal } from "./components/SettingsModal";
 import { WalletModal } from "./components/WalletModal";
-import { Key, Cpu } from "lucide-react";
+import { Key, Cpu, AlertTriangle } from "lucide-react";
 
 function MainContent() {
-  const { settings } = useApp();
+  const { settings, error, clearError } = useApp();
   const [currentTab, setCurrentTab] = useState<AppTab>("trade");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [walletOpen, setWalletOpen] = useState(false);
@@ -35,6 +35,26 @@ function MainContent() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-6 space-y-6">
+        {/* Global Notice / Error Banner */}
+        {error && (
+          <div className="flex items-center justify-between gap-3 p-4 rounded-2xl bg-rose-950/40 border border-rose-800/50 text-rose-200 shadow-lg shadow-rose-950/20">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400 shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="text-xs">
+                <span className="font-bold block text-sm text-white">Notice</span>
+                {error}
+              </div>
+            </div>
+            <button
+              onClick={clearError}
+              className="px-3 py-1.5 rounded-lg bg-rose-900/40 hover:bg-rose-900/60 text-rose-200 text-xs font-semibold shrink-0 transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
         {/* Banner if Blockfrost API Key is Missing */}
         {!settings.blockfrostApiKey && (
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 rounded-2xl bg-amber-950/30 border border-amber-500/40 text-amber-200 shadow-lg shadow-amber-950/20">

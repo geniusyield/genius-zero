@@ -120,6 +120,7 @@ export async function connectWallet(
   walletId: string
 ): Promise<{
   address: string;
+  networkId: number | null;
   usedAddresses: string[];
   rewardAddress: string | null;
   pkh: string;
@@ -133,6 +134,16 @@ export async function connectWallet(
   }
 
   const walletApi = await (window as any).cardano[walletId].enable();
+
+  let networkId: number | null = null;
+  try {
+    if (typeof walletApi.getNetworkId === "function") {
+      networkId = await walletApi.getNetworkId();
+    }
+  } catch (err) {
+    console.warn("Could not query walletApi.getNetworkId():", err);
+  }
+
   lucid.selectWallet.fromAPI(walletApi);
 
   const address = await lucid.wallet().address();
@@ -209,6 +220,7 @@ export async function connectWallet(
 
   return {
     address,
+    networkId,
     usedAddresses,
     rewardAddress,
     pkh,

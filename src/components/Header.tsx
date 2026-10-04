@@ -209,11 +209,27 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Wallet Connect Button */}
         {wallet.connected && wallet.address ? (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#182234] border border-emerald-500/30 text-xs">
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#182234] border text-xs ${
+            (settings.network === "preprod" && !wallet.address.startsWith("addr_test1")) ||
+            (settings.network === "mainnet" && !wallet.address.startsWith("addr1"))
+              ? "border-rose-500/60 bg-rose-950/20"
+              : settings.network === "preprod"
+              ? "border-amber-500/30"
+              : "border-emerald-500/30"
+          }`}>
             <div className="flex flex-col text-right">
-              <span className="font-semibold text-emerald-400 font-mono">
-                {formatAda(wallet.balanceLovelace)} ADA
-              </span>
+              {(settings.network === "preprod" && !wallet.address.startsWith("addr_test1")) ||
+              (settings.network === "mainnet" && !wallet.address.startsWith("addr1")) ? (
+                <span className="font-bold text-rose-400 font-mono text-[11px]">
+                  Wrong Network
+                </span>
+              ) : (
+                <span className={`font-semibold font-mono ${
+                  settings.network === "preprod" ? "text-amber-400" : "text-emerald-400"
+                }`}>
+                  {formatAda(wallet.balanceLovelace)} {settings.network === "preprod" ? "tADA" : "ADA"}
+                </span>
+              )}
               <span className="text-[10px] text-slate-400 font-mono">
                 {formatAddress(wallet.address)}
               </span>

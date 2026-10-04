@@ -11,16 +11,18 @@ export const WalletModal: React.FC<WalletModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { availableWallets, connectWalletById, wallet, error } = useApp();
+  const { availableWallets, connectWalletById, wallet, error, settings } = useApp();
 
   if (!isOpen) return null;
 
   const handleConnect = async (id: string) => {
-    await connectWalletById(id);
-    if (!wallet.error) {
+    const success = await connectWalletById(id);
+    if (success) {
       onClose();
     }
   };
+
+  const activeError = error || wallet.error;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -32,7 +34,18 @@ export const WalletModal: React.FC<WalletModalProps> = ({
               <Wallet className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="font-bold text-lg text-white">Connect Cardano Wallet</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="font-bold text-lg text-white">Connect Wallet</h2>
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                    settings.network === "mainnet"
+                      ? "bg-emerald-950/80 text-emerald-300 border-emerald-800/60"
+                      : "bg-amber-950/80 text-amber-300 border-amber-800/60"
+                  }`}
+                >
+                  {settings.network === "mainnet" ? "Mainnet" : "Preprod"}
+                </span>
+              </div>
               <p className="text-xs text-slate-400">Select an installed CIP-30 extension</p>
             </div>
           </div>
@@ -46,9 +59,16 @@ export const WalletModal: React.FC<WalletModalProps> = ({
 
         {/* Body */}
         <div className="p-6 space-y-4">
-          {error && (
-            <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-800/50 text-rose-300 text-xs">
-              {error}
+          {activeError && (
+            <div className="p-3.5 rounded-xl bg-rose-950/50 border border-rose-800/60 text-rose-200 text-xs space-y-1">
+              <div className="font-bold text-rose-300">Connection Alert</div>
+              <div className="leading-relaxed">{activeError}</div>
+            </div>
+          )}
+
+          {settings.network === "preprod" && !activeError && (
+            <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-800/40 text-amber-300 text-xs leading-relaxed">
+              <span className="font-bold">Preprod Mode:</span> Make sure your wallet extension (e.g. Eternl) has its network toggled to <strong>Preprod</strong> and a Preprod account active.
             </div>
           )}
 

@@ -35,7 +35,7 @@ interface AppContextType {
   updateSettings: (newSettings: Partial<AppSettings>) => void;
   wallet: WalletState;
   availableWallets: AvailableWallet[];
-  connectWalletById: (walletId: string, isAutoConnect?: boolean) => Promise<void>;
+  connectWalletById: (walletId: string, isAutoConnect?: boolean) => Promise<boolean>;
   disconnectWallet: () => void;
   activePair: TradingPair;
   setActivePair: (pair: TradingPair) => void;
@@ -64,6 +64,14 @@ const defaultSettings: AppSettings = {
   autoRefreshInterval: 30,
 };
 
+const getEnvKey = (key: string): string => {
+  try {
+    return (import.meta as any).env?.[key] || "";
+  } catch {
+    return "";
+  }
+};
+
 const initialOrderBook: OrderBook = {
   bids: [],
   asks: [],
@@ -90,6 +98,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const [settings, setSettings] = useState<AppSettings>(() => {
+    const envPreprod = getEnvKey("BLOCKFROST_API_KEY_PREPROD") || getEnvKey("VITE_BLOCKFROST_API_KEY_PREPROD");
+    const envMainnet = getEnvKey("BLOCKFROST_API_KEY_MAINNET") || getEnvKey("BLOCKFROST_API_KEY") || getEnvKey("VITE_BLOCKFROST_API_KEY_MAINNET");
+
     try {
       const saved = localStorage.getItem(SETTINGS_STORAGE_KEY);
       if (saved) {
@@ -102,6 +113,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         if (!merged.blockfrostApiKeyPreprod && merged.blockfrostApiKey?.startsWith("preprod")) {
           merged.blockfrostApiKeyPreprod = merged.blockfrostApiKey;
         }
+        if (!merged.blockfrostApiKeyPreprod && envPreprod) {
+          merged.blockfrostApiKeyPreprod = envPreprod;
+        }
+        if (!merged.blockfrostApiKeyMainnet && envMainnet) {
+          merged.blockfrostApiKeyMainnet = envMainnet;
+        }
         // Ensure active key matches the current network
         merged.blockfrostApiKey =
           merged.network === "mainnet"
@@ -112,7 +129,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch {
       // ignore
     }
-    return defaultSettings;
+    return {
+      ...defaultSettings,
+      blockfrostApiKeyMainnet: envMainnet,
+      blockfrostApiKeyPreprod: envPreprod,
+      blockfrostApiKey: defaultSettings.network === "mainnet" ? envMainnet : envPreprod,
+    };
   });
 
   const [wallet, setWallet] = useState<WalletState>(initialWalletState);
@@ -151,6 +173,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         } else if (key.startsWith("preprod")) {
           updated.blockfrostApiKeyPreprod = key;
         }
+      }
+
+      const envPreprod = getEnvKey("BLOCKFROST_API_KEY_PREPROD") || getEnvKey("VITE_BLOCKFROST_API_KEY_PREPROD");
+      const envMainnet = getEnvKey("BLOCKFROST_API_KEY_MAINNET") || getEnvKey("BLOCKFROST_API_KEY") || getEnvKey("VITE_BLOCKFROST_API_KEY_MAINNET");
+
+      if (!updated.blockfrostApiKeyPreprod && envPreprod) {
+        updated.blockfrostApiKeyPreprod = envPreprod;
+      }
+      if (!updated.blockfrostApiKeyMainnet && envMainnet) {
+        updated.blockfrostApiKeyMainnet = envMainnet;
       }
 
       // Ensure active blockfrostApiKey matches active network
@@ -215,12 +247,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [settings.blockfrostApiKey, settings.network]);
 
   // Connect wallet
-  const connectWalletById = async (walletId: string, isAutoConnect = false) => {
+  const connectWalletById = async (walletId: string, isAutoConnect = false): Promise<boolean> => {
     if (!lucid) {
       if (!isAutoConnect) {
-        setError("Please configure your Blockfrost API key in Settings first.");
+        const netName = settings.network === "preprod" ? "Preprod Testnet" : "Mainnet";
+        setError(`Please configure your ${netName} Blockfrost API key in Settings first.`);
       }
-      return;
+      return false;
     }
 
     setWallet((prev) => ({ ...prev, connecting: true, error: null }));
@@ -230,13 +263,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       // Verify wallet network matches app settings network
       const isTestnetAddr = details.address.startsWith("addr_test1");
       const isMainnetAddr = details.address.startsWith("addr1");
-      if (settings.network === "mainnet" && isTestnetAddr) {
+      const isTestnetId = details.networkId === 0;
+      const isMainnetId = details.networkId === 1;
+
+      const isWalletMainnet = isMainnetAddr || isMainnetId;
+      const isWalletTestnet = isTestnetAddr || isTestnetId;
+
+      if (settings.network === "mainnet" && isWalletTestnet) {
         throw new Error(
-          "Network mismatch: Your wallet is connected to Cardano Testnet, but Genius Zero is set to Mainnet. Please switch your wallet network to Mainnet."
+          "Network mismatch: Your wallet extension is currently connected to Cardano Testnet (addr_test1...). Please switch your wallet extension to Cardano Mainnet and try again."
         );
-      } else if (settings.network === "preprod" && isMainnetAddr) {
+      } else if (settings.network === "preprod" && isWalletMainnet) {
         throw new Error(
-          "Network mismatch: Your wallet is connected to Cardano Mainnet, but Genius Zero is set to Preprod Testnet. Please switch your wallet network/account to Preprod."
+          "Network mismatch: Your wallet extension is currently connected to Cardano Mainnet (addr1...). Please open your wallet extension (e.g. Eternl), switch to Preprod Testnet and select a Preprod account, then try connecting again."
         );
       }
 
@@ -259,13 +298,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       } catch {
         // ignore
       }
+      setError(null);
+      return true;
     } catch (err: any) {
       console.warn(`Failed to connect wallet (${walletId}):`, err);
-      setWallet((prev) => ({
-        ...prev,
-        connecting: false,
-        error: isAutoConnect ? null : err?.message || "Failed to connect wallet",
-      }));
+      const errorMsg = err?.message || "Failed to connect wallet";
+      // Clear wallet state completely so no stale cross-network balance or address is kept
+      setWallet({
+        ...initialWalletState,
+        error: errorMsg,
+      });
+      try {
+        localStorage.removeItem(CONNECTED_WALLET_STORAGE_KEY);
+      } catch {
+        // ignore
+      }
+      if (!isAutoConnect || errorMsg.includes("Network mismatch")) {
+        setError(errorMsg);
+      }
+      return false;
     }
   };
 
@@ -387,7 +438,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     return () => window.removeEventListener("focus", handleFocus);
   }, [lucid, wallet.connected, wallet.walletName, wallet.address, wallet.connecting]);
 
-  // Switch default pair when network changes
+  // Switch default pair and enforce clean wallet disconnection when network changes
   useEffect(() => {
     const pairs = getTradingPairs(settings.network);
     setActivePair((current) => {
@@ -395,7 +446,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       return match || pairs[0];
     });
     setOrderBook(initialOrderBook);
-  }, [settings.network]);
+    setUserOrders([]);
+
+    // If a wallet was already connected, check whether its address matches the new network
+    if (wallet.connected && wallet.address) {
+      const isTestnetAddr = wallet.address.startsWith("addr_test1");
+      const isMainnetAddr = wallet.address.startsWith("addr1");
+      const mismatch =
+        (settings.network === "mainnet" && isTestnetAddr) ||
+        (settings.network === "preprod" && isMainnetAddr);
+
+      if (mismatch) {
+        setWallet(initialWalletState);
+        try {
+          localStorage.removeItem(CONNECTED_WALLET_STORAGE_KEY);
+        } catch {
+          // ignore
+        }
+        setError(
+          `Switched to ${settings.network === "preprod" ? "Preprod Testnet" : "Cardano Mainnet"}. Connected wallet was disconnected because its address is on the other network. Please switch your wallet extension (Eternl/Lace) to ${settings.network === "preprod" ? "Preprod" : "Mainnet"} and reconnect.`
+        );
+      }
+    }
+  }, [settings.network, wallet.connected, wallet.address]);
 
   // Cancel OrderBook fetch
   const cancelRefreshOrderBook = useCallback(() => {

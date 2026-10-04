@@ -216,6 +216,18 @@ async function main() {
   console.log("\n--- [Step 5/5] Cancelling Order & Reclaiming Funds ---");
   console.log("Cancelling order to burn tracking NFT and refund 100% of offered tADA and deposit...");
 
+  // Wait for Blockfrost's address indexer to see the new change UTxO from orderTxHash
+  console.log("   Waiting for Blockfrost wallet UTxO indexing...");
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const currentUtxos = await lucid.wallet().getUtxos();
+    const hasOrderChange = currentUtxos.some((u) => u.txHash === orderTxHash);
+    if (hasOrderChange) {
+      console.log("✔ Wallet UTxOs synced with Blockfrost!");
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+
   const cancelOutRef = { txHash: orderTxHash, outputIndex: 0 };
   const cancelTxBuilder = await cancelOrders(lucid, lucid.newTx(), [cancelOutRef]);
   const completedCancelTx = await cancelTxBuilder.complete();
