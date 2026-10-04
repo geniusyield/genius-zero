@@ -38,6 +38,9 @@ export interface DexOrder {
   nftUnit: string;
   depositLovelace: bigint;
   partialFills: bigint;
+  start?: bigint | null;
+  end?: bigint | null;
+  isExpired?: boolean;
   isUserOrder?: boolean;
 }
 

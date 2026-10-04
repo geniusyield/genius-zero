@@ -82,6 +82,15 @@ export async function fetchAllOrdersForPair(
 
         if (!isAsk && !isBid) return;
 
+        // Skip orders that have expired or are not yet active
+        const now = Date.now();
+        if (datum.podEnd && Number(datum.podEnd) <= now) {
+          return;
+        }
+        if (datum.podStart && Number(datum.podStart) > now) {
+          return;
+        }
+
         const num = Number(datum.podPrice.numerator);
         const den = Number(datum.podPrice.denominator);
         if (den === 0 || num === 0) return;
@@ -123,6 +132,9 @@ export async function fetchAllOrdersForPair(
           nftUnit,
           depositLovelace: utxo.assets.lovelace,
           partialFills: datum.podPartialFills,
+          start: datum.podStart,
+          end: datum.podEnd,
+          isExpired: false,
           isUserOrder: pkhList.length > 0 ? pkhList.includes(datum.podOwnerKey) : false,
         };
 
@@ -226,6 +238,8 @@ export async function fetchUserOrders(
         const num = Number(datum.podPrice.numerator);
         const den = Number(datum.podPrice.denominator);
         const effectivePrice = den > 0 ? num / den : 0;
+        const now = Date.now();
+        const isExpired = !!datum.podEnd && Number(datum.podEnd) <= now;
 
         userOrders.push({
           utxoRef: {
@@ -247,6 +261,9 @@ export async function fetchUserOrders(
           nftUnit,
           depositLovelace: utxo.assets.lovelace,
           partialFills: datum.podPartialFills,
+          start: datum.podStart,
+          end: datum.podEnd,
+          isExpired,
           isUserOrder: true,
         });
       } catch {

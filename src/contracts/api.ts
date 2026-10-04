@@ -319,6 +319,19 @@ export const fillOrder = async (
   orderDatum: PartialOrderDatum,
   fillAmount?: bigint
 ): Promise<TxBuilder> => {
+  const now = Date.now();
+  if (orderDatum.podEnd && Number(orderDatum.podEnd) <= now) {
+    throw new Error("This order has expired on-chain and can no longer be filled.");
+  }
+  if (orderDatum.podStart && Number(orderDatum.podStart) > now) {
+    throw new Error("This order is not yet active on-chain.");
+  }
+
+  const defaultValidTo = now + 2 * 60 * 60 * 1000;
+  const validToTime = orderDatum.podEnd
+    ? Math.min(Number(orderDatum.podEnd), defaultValidTo)
+    : defaultValidTo;
+
   const isComplete = !fillAmount || fillAmount >= orderDatum.podOfferedAmount;
   const poConstants = resolvePOConstants(lucid);
   const [pocDatum, pocUTxO] = await fetchPartialOrderConfig(lucid);
@@ -372,7 +385,7 @@ export const fillOrder = async (
       );
     }
 
-    return completeTx.validTo(Date.now() + 2 * 60 * 60 * 1000);
+    return completeTx.validTo(validToTime);
   } else {
     if (fillAmount <= 0n) {
       throw new Error("Fill amount must be positive.");
@@ -408,7 +421,7 @@ export const fillOrder = async (
         { kind: "inline", value: Data.to(updatedDatum, PartialOrderDatum) },
         continuingAssets
       )
-      .validTo(Date.now() + 2 * 60 * 60 * 1000);
+      .validTo(validToTime);
   }
 };
 

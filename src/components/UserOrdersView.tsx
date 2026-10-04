@@ -112,10 +112,17 @@ export const UserOrdersView: React.FC = () => {
                   <tr key={refKey} className="hover:bg-[#182234]/50 transition-colors">
                     {/* Direction */}
                     <td className="py-3 px-3">
-                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#141b27] border border-[#1f2d44] text-[11px]">
-                        <span className="font-bold text-emerald-400">{offerSym}</span>
-                        <ArrowRight className="w-3 h-3 text-slate-500" />
-                        <span className="font-bold text-slate-200">{askSym}</span>
+                      <div className="flex items-center gap-2">
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#141b27] border border-[#1f2d44] text-[11px]">
+                          <span className="font-bold text-emerald-400">{offerSym}</span>
+                          <ArrowRight className="w-3 h-3 text-slate-500" />
+                          <span className="font-bold text-slate-200">{askSym}</span>
+                        </div>
+                        {order.isExpired && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            Expired
+                          </span>
+                        )}
                       </div>
                     </td>
 
