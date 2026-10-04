@@ -37,17 +37,30 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
 
   let askTotalAcc = 0;
   const asksWithDepth = asks.map((order) => {
-    const amt = getAmountNumber(order.offeredAmount, tokenA.decimals);
-    askTotalAcc += amt;
-    return { ...order, amt, totalQuote: amt * order.effectivePrice, cumulative: askTotalAcc };
+    const availableOffered = getAmountNumber(order.offeredAmount, tokenA.decimals);
+    const costToPay = availableOffered * order.effectivePrice;
+    askTotalAcc += availableOffered;
+    return {
+      ...order,
+      availableOffered,
+      costToPay,
+      cumulative: askTotalAcc,
+    };
   });
   const maxAskDepth = askTotalAcc > 0 ? askTotalAcc : 1;
 
   let bidTotalAcc = 0;
   const bidsWithDepth = bids.map((order) => {
-    const amt = getAmountNumber(order.offeredAmount, tokenB.decimals) / (order.effectivePrice || 1);
-    bidTotalAcc += amt;
-    return { ...order, amt, totalQuote: amt * order.effectivePrice, cumulative: bidTotalAcc };
+    const availableOffered = getAmountNumber(order.offeredAmount, tokenB.decimals);
+    const costToPay =
+      order.effectivePrice > 0 ? availableOffered / order.effectivePrice : 0;
+    bidTotalAcc += availableOffered;
+    return {
+      ...order,
+      availableOffered,
+      costToPay,
+      cumulative: bidTotalAcc,
+    };
   });
   const maxBidDepth = bidTotalAcc > 0 ? bidTotalAcc : 1;
 
@@ -79,13 +92,6 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
         </div>
       )}
 
-      {/* Column Titles */}
-      <div className="grid grid-cols-3 px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider border-b border-[#1f2d44]/50 bg-[#0e131d]">
-        <div className="text-left">Price Rate (Both Directions)</div>
-        <div className="text-right">Available Size ({tokenA.symbol})</div>
-        <div className="text-right">Value ({tokenB.symbol})</div>
-      </div>
-
       {/* Section 1 Header: Makers Offering Token A (e.g. GENS) */}
       <div className="px-3 py-1.5 bg-[#0e141f] border-b border-[#1f2d44]/60 flex items-center justify-between text-[11px]">
         <span className="font-semibold text-rose-300 flex items-center gap-1.5">
@@ -93,8 +99,15 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
           <span className="text-slate-500 font-normal">→ Want {tokenB.symbol}</span>
         </span>
         <span className="text-[10px] text-slate-400 font-mono">
-          Click to <strong>Get {tokenA.symbol} & Pay {tokenB.symbol}</strong>
+          Click order to <strong>Get {tokenA.symbol} &amp; Pay {tokenB.symbol}</strong>
         </span>
+      </div>
+
+      {/* Section 1 Dedicated Column Titles */}
+      <div className="grid grid-cols-3 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider border-b border-[#1f2d44]/40 bg-[#090d14]">
+        <div className="text-left text-slate-500">Rate ({tokenA.symbol} ⇄ {tokenB.symbol})</div>
+        <div className="text-right text-rose-300/90">Available to Get ({tokenA.symbol})</div>
+        <div className="text-right text-slate-400">Cost to Pay ({tokenB.symbol})</div>
       </div>
 
       {/* Asks (Makers offering Token A) - display highest to lowest so lowest price is adjacent to spread */}
@@ -115,14 +128,14 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
                 key={`ask-${ask.utxoRef.txHash}-${ask.utxoRef.outputIndex}-${idx}`}
                 onClick={() => {
                   onSelectOrder?.(ask);
-                  onSelectPrice?.(ask.effectivePrice, ask.amt);
+                  onSelectPrice?.(ask.effectivePrice, ask.availableOffered);
                 }}
                 className={`relative grid grid-cols-3 px-3 py-1.5 text-xs font-mono rounded cursor-pointer transition-all group ${
                   isSelected
                     ? "bg-rose-500/25 ring-1 ring-rose-400"
                     : "hover:bg-rose-500/10"
                 }`}
-                title={`Click to fill: Get ${ask.amt.toFixed(2)} ${tokenA.symbol} for ${ask.totalQuote.toFixed(2)} ${tokenB.symbol}`}
+                title={`Click to fill: Get ${ask.availableOffered.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${tokenA.symbol} for ${ask.costToPay.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${tokenB.symbol}`}
               >
                 {/* Visual Depth Bar */}
                 <div
@@ -145,11 +158,13 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
                   </div>
                 </div>
 
-                <div className="relative text-slate-300 text-right my-auto">
-                  {ask.amt.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                <div className="relative text-slate-200 text-right my-auto font-medium">
+                  {ask.availableOffered.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                  <span className="text-[10px] text-slate-400 ml-1">{tokenA.symbol}</span>
                 </div>
                 <div className="relative text-slate-400 text-right my-auto">
-                  {ask.totalQuote.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  {ask.costToPay.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                  <span className="text-[10px] text-slate-500 ml-1">{tokenB.symbol}</span>
                 </div>
               </div>
             );
@@ -199,8 +214,15 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
           <span className="text-slate-500 font-normal">→ Want {tokenA.symbol}</span>
         </span>
         <span className="text-[10px] text-slate-400 font-mono">
-          Click to <strong>Get {tokenB.symbol} & Pay {tokenA.symbol}</strong>
+          Click order to <strong>Get {tokenB.symbol} &amp; Pay {tokenA.symbol}</strong>
         </span>
+      </div>
+
+      {/* Section 2 Dedicated Column Titles */}
+      <div className="grid grid-cols-3 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider border-b border-[#1f2d44]/40 bg-[#090d14]">
+        <div className="text-left text-slate-500">Rate ({tokenA.symbol} ⇄ {tokenB.symbol})</div>
+        <div className="text-right text-emerald-300/90">Available to Get ({tokenB.symbol})</div>
+        <div className="text-right text-slate-400">Cost to Pay ({tokenA.symbol})</div>
       </div>
 
       {/* Bids (Makers offering Token B) - display highest to lowest */}
@@ -221,14 +243,14 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
                 key={`bid-${bid.utxoRef.txHash}-${bid.utxoRef.outputIndex}-${idx}`}
                 onClick={() => {
                   onSelectOrder?.(bid);
-                  onSelectPrice?.(bid.effectivePrice, bid.amt);
+                  onSelectPrice?.(bid.effectivePrice, bid.availableOffered);
                 }}
                 className={`relative grid grid-cols-3 px-3 py-1.5 text-xs font-mono rounded cursor-pointer transition-all group ${
                   isSelected
                     ? "bg-emerald-500/25 ring-1 ring-emerald-400"
                     : "hover:bg-emerald-500/10"
                 }`}
-                title={`Click to fill: Get ${bid.totalQuote.toFixed(2)} ${tokenB.symbol} for ${bid.amt.toFixed(2)} ${tokenA.symbol}`}
+                title={`Click to fill: Get ${bid.availableOffered.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${tokenB.symbol} for ${bid.costToPay.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${tokenA.symbol}`}
               >
                 {/* Visual Depth Bar */}
                 <div
@@ -251,11 +273,13 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
                   </div>
                 </div>
 
-                <div className="relative text-slate-300 text-right my-auto">
-                  {bid.amt.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                <div className="relative text-slate-200 text-right my-auto font-medium">
+                  {bid.availableOffered.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                  <span className="text-[10px] text-slate-400 ml-1">{tokenB.symbol}</span>
                 </div>
                 <div className="relative text-slate-400 text-right my-auto">
-                  {bid.totalQuote.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  {bid.costToPay.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                  <span className="text-[10px] text-slate-500 ml-1">{tokenA.symbol}</span>
                 </div>
               </div>
             );
