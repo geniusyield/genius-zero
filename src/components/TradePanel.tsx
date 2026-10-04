@@ -17,6 +17,7 @@ import {
 import { useApp } from "../context/AppContext";
 import { DexOrder } from "../types";
 import { calculateFillCost } from "../services/trade";
+import { parseTokenUnits, formatTokenUnits } from "../contracts/utils";
 
 interface TradePanelProps {
   initialPrice?: number;
@@ -217,15 +218,13 @@ export const TradePanel: React.FC<TradePanelProps> = ({
     const offeredDecimals = makerOfferedToken.decimals;
     const askedDecimals = makerAskedToken.decimals;
 
-    const maxOfferedTokens = Number(selectedOrder.offeredAmount) / Math.pow(10, offeredDecimals);
-    const parsedInput = parseFloat(fillAmountStr) || 0;
-    const boundedInput = Math.min(Math.max(0, parsedInput), maxOfferedTokens);
-
+    const maxOfferedTokens = Number(formatTokenUnits(selectedOrder.offeredAmount, offeredDecimals));
+    const userEnteredRaw = parseTokenUnits(fillAmountStr, offeredDecimals);
     let fillAmountRaw: bigint;
-    if (boundedInput >= maxOfferedTokens || parsedInput >= maxOfferedTokens) {
+    if (userEnteredRaw >= selectedOrder.offeredAmount || !fillAmountStr) {
       fillAmountRaw = selectedOrder.offeredAmount;
     } else {
-      fillAmountRaw = BigInt(Math.floor(boundedInput * Math.pow(10, offeredDecimals)));
+      fillAmountRaw = userEnteredRaw;
     }
 
     const cost = calculateFillCost(selectedOrder, fillAmountRaw);

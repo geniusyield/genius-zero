@@ -297,3 +297,39 @@ export function ensure<T>(
   }
   return argument;
 }
+
+/**
+ * Safely parses a human-readable token amount string into its atomic bigint representation.
+ * Avoids JavaScript floating-point errors (e.g. Math.floor(0.29 * 100) === 28).
+ */
+export function parseTokenUnits(amount: string | number, decimals: number): bigint {
+  if (decimals < 0) throw new Error("Decimals cannot be negative");
+  let cleanStr = typeof amount === "number" ? amount.toString() : amount.trim();
+  if (!cleanStr || cleanStr === "0" || cleanStr === "0.") return 0n;
+
+  // Handle scientific notation e.g. 1e-6
+  if (cleanStr.includes("e") || cleanStr.includes("E")) {
+    cleanStr = Number(cleanStr).toFixed(decimals);
+  }
+
+  const [intPartRaw, fracPartRaw = ""] = cleanStr.split(".");
+  const intPart = intPartRaw.replace(/^0+(?=\d)/, "") || "0";
+  const fracPart = fracPartRaw.slice(0, decimals).padEnd(decimals, "0");
+
+  const combined = decimals === 0 ? intPart : intPart + fracPart;
+  return BigInt(combined);
+}
+
+/**
+ * Safely formats an atomic bigint token amount into a human-readable decimal string.
+ */
+export function formatTokenUnits(amountRaw: bigint, decimals: number, maxDecimals = decimals): string {
+  if (decimals === 0) return amountRaw.toString();
+  const factor = 10n ** BigInt(decimals);
+  const intPart = amountRaw / factor;
+  const remPart = amountRaw % factor;
+
+  const fracStr = remPart.toString().padStart(decimals, "0");
+  const trimmedFrac = fracStr.slice(0, maxDecimals).replace(/0+$/, "");
+  return trimmedFrac ? `${intPart}.${trimmedFrac}` : intPart.toString();
+}

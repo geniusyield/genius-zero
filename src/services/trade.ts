@@ -2,6 +2,7 @@ import { LucidEvolution, OutRef, UTxO } from "@lucid-evolution/lucid";
 import { DexOrder, TradingPair } from "../types";
 import { createOrder, cancelOrders, fillOrder, myDatumOf } from "../contracts/api";
 import { RationalD } from "../contracts/contract.types";
+import { parseTokenUnits } from "../contracts/utils";
 
 function gcd(a: bigint, b: bigint): bigint {
   let x = a < 0n ? -a : a;
@@ -90,14 +91,14 @@ export async function placeLimitOrder(
     // User offers base token (e.g. GENS) and asks for quote token (e.g. ADA)
     offerAC = pair.baseToken.unit;
     priceAC = pair.quoteToken.unit;
-    offerAmt = BigInt(Math.floor(offerAmount * Math.pow(10, pair.baseToken.decimals)));
-    askAmt = BigInt(Math.floor(askAmount * Math.pow(10, pair.quoteToken.decimals)));
+    offerAmt = parseTokenUnits(offerAmount, pair.baseToken.decimals);
+    askAmt = parseTokenUnits(askAmount, pair.quoteToken.decimals);
   } else {
     // User offers quote token (e.g. ADA) and asks for base token (e.g. GENS)
     offerAC = pair.quoteToken.unit;
     priceAC = pair.baseToken.unit;
-    offerAmt = BigInt(Math.floor(offerAmount * Math.pow(10, pair.quoteToken.decimals)));
-    askAmt = BigInt(Math.floor(askAmount * Math.pow(10, pair.baseToken.decimals)));
+    offerAmt = parseTokenUnits(offerAmount, pair.quoteToken.decimals);
+    askAmt = parseTokenUnits(askAmount, pair.baseToken.decimals);
   }
 
   // Rational price in datum is asked / offered
