@@ -245,6 +245,9 @@ export const cancelOrders = async (
   let feeMapAcc: Map<OutputReferenceD, ValueD> = new Map();
 
   for (const [orderUTxO, orderUTxOsDatum] of orderUTxOsWithDatums) {
+    if (!orderUTxO.datum) {
+      orderUTxO.datum = Data.to(orderUTxOsDatum, PartialOrderDatum);
+    }
     const outputRef: OutputReferenceD = {
       txHash: { hash: orderUTxO.txHash },
       outputIndex: BigInt(orderUTxO.outputIndex),
@@ -319,6 +322,9 @@ export const fillOrder = async (
   orderDatum: PartialOrderDatum,
   fillAmount?: bigint
 ): Promise<TxBuilder> => {
+  if (!orderUTxO.datum) {
+    orderUTxO.datum = Data.to(orderDatum, PartialOrderDatum);
+  }
   const now = Date.now();
   if (orderDatum.podEnd && Number(orderDatum.podEnd) <= now) {
     throw new Error("This order has expired on-chain and can no longer be filled.");

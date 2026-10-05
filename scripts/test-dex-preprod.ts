@@ -468,7 +468,7 @@ async function main() {
       offerAC,
       priceAC,
       rationalPrice,
-      true
+      false // inlineDat = false (tests hashed-datum order placement and cancellation)
     );
     const signed = await (await txBuilder.complete()).sign.withWallet().complete();
     const placeHash = await signed.submit();
@@ -870,7 +870,7 @@ async function main() {
       offerAC,
       priceAC,
       rationalPrice,
-      true
+      false // inlineDat = false (tests partial fill of hashed-datum orders)
     );
     const signed = await (await txBuilder.complete()).sign.withWallet().complete();
     const placeHash = await signed.submit();

@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test:dex:preprod": "node scripts/patch-lucid.js && vite-node scripts/test-dex-preprod.ts"
+    "test:contracts": "tsx scripts/test-contracts-config.ts",
+    "test:dex:preprod": "node scripts/patch-lucid.js && vite-node scripts/test-dex-preprod.ts",
+    "test": "npm run test:contracts"
   },
   "dependencies": {
     "@lucid-evolution/lucid": "^0.3.19",
