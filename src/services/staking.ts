@@ -666,10 +666,17 @@ export async function unstakeVault(
   }
 
   // If locked, ensure tx validity range starts at or after the unlock time
-  if (vault.lockedUntilMs && vault.lockedUntilMs > Date.now()) {
-    throw new Error(`Vault is locked until ${new Date(vault.lockedUntilMs).toLocaleString()}. Unstaking is not yet permitted.`);
-  } else if (vault.lockedUntilMs) {
-    tx = tx.validFrom(Math.max(Date.now() - 60_000, vault.lockedUntilMs));
+  if (vault.lockedUntilMs) {
+    // In Cardano, validity interval lower bound translates to slot begin time.
+    // The Plutus validator checks: contains (from lockedUntilMs) txInfoValidRange.
+    // Therefore, the slot's begin time MUST be >= lockedUntilMs.
+    const minValidFromMs = Math.ceil(vault.lockedUntilMs / 1000) * 1000;
+    // Require 5s margin for blockchain node slot clock to catch up with client time
+    if (Date.now() < minValidFromMs + 5_000) {
+      const waitSec = Math.max(1, Math.ceil((minValidFromMs + 5_000 - Date.now()) / 1000));
+      throw new Error(`Vault is unlocking. Please wait ${waitSec}s for on-chain block time to reach unlock slot.`);
+    }
+    tx = tx.validFrom(Math.max(Date.now() - 60_000, minValidFromMs));
   } else {
     tx = tx.validFrom(Date.now() - 60_000);
   }
@@ -720,7 +727,7 @@ export async function createStake(
     throw new Error("Unable to derive payment credential from wallet address.");
   }
 
-  const lockUntilMs = lockDurationDays > 0 ? Date.now() + lockDurationDays * 86_400_000 : null;
+  const lockUntilMs = lockDurationDays > 0 ? Math.floor(Date.now() / 1000) * 1000 + lockDurationDays * 86_400_000 : null;
   const datum = makeStakeDatum(ownerPkh, lockUntilMs);
   const datumHex = Data.to(datum);
 
@@ -734,7 +741,7 @@ export async function createStake(
 
   const tx = await lucid
     .newTx()
-    .pay.ToContract(constants.stakingAddr, { kind: "inline", value: datumHex }, assets)
+    .pay.ToContract(constants.stakingAddr, { kind: "asHash", value: datumHex }, assets)
     .complete();
 
   const signedTx = await tx.sign.withWallet().complete();

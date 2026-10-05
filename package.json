@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test:contracts": "tsx scripts/test-contracts-config.ts",
     "test:dex:preprod": "node scripts/patch-lucid.js && vite-node scripts/test-dex-preprod.ts",
+    "test:staking:preprod": "node scripts/patch-lucid.js && vite-node scripts/test-staking-preprod.ts",
     "test": "npm run test:contracts"
   },
   "dependencies": {
