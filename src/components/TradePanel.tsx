@@ -18,6 +18,7 @@ import { useApp } from "../context/AppContext";
 import { DexOrder } from "../types";
 import { calculateFillCost } from "../services/trade";
 import { parseTokenUnits, formatTokenUnits } from "../contracts/utils";
+import { formatMinswapRate } from "../services/minswap";
 
 interface TradePanelProps {
   initialPrice?: number;
@@ -46,6 +47,8 @@ export const TradePanel: React.FC<TradePanelProps> = ({
     actionMessage,
     error,
     clearError,
+    minswapPrice,
+    loadingMinswapPrice,
   } = useApp();
 
   const tokenA = activePair.baseToken;
@@ -515,6 +518,42 @@ export const TradePanel: React.FC<TradePanelProps> = ({
                 </span>
               </div>
             </div>
+
+            {/* MINSWAP MARKET COMPARISON */}
+            {minswapPrice && minswapPrice.available && (
+              <div className="p-2.5 rounded-xl bg-blue-950/20 border border-blue-500/30 text-[11px] font-mono space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-blue-400 font-bold text-[10px] uppercase tracking-wider font-sans">
+                    <ExternalLink className="w-3 h-3" />
+                    <span>Minswap Market Price</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetRate = rateIsFlipped
+                        ? minswapPrice.priceQuoteInBase
+                        : minswapPrice.priceBaseInQuote;
+                      setRateStr(targetRate.toString());
+                    }}
+                    className="text-[10px] text-blue-400 hover:text-blue-300 underline font-sans font-semibold transition-colors"
+                  >
+                    Use Minswap Rate
+                  </button>
+                </div>
+                <div className="flex items-center justify-between text-slate-300">
+                  <span>1 {tokenA.symbol} =</span>
+                  <span className="font-semibold text-white">
+                    {formatMinswapRate(minswapPrice.priceBaseInQuote)} {tokenB.symbol}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-slate-400 border-t border-blue-500/20 pt-1">
+                  <span>1 {tokenB.symbol} =</span>
+                  <span className="font-semibold text-slate-300">
+                    {formatMinswapRate(minswapPrice.priceQuoteInBase)} {tokenA.symbol}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Output 3: You Get Out (Calculated) */}
@@ -672,16 +711,66 @@ export const TradePanel: React.FC<TradePanelProps> = ({
                     <div className="flex items-center justify-between text-slate-300">
                       <span>1 {tokenA.symbol} =</span>
                       <span className="font-semibold text-white">
-                        {fillDetails.orderPriceNum.toFixed(4)} {tokenB.symbol}
+                        {fillDetails.orderPriceNum < 0.0001
+                          ? fillDetails.orderPriceNum.toExponential(4)
+                          : fillDetails.orderPriceNum.toFixed(4)}{" "}
+                        {tokenB.symbol}
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-slate-400 border-t border-[#1f2d44]/40 pt-0.5">
                       <span>1 {tokenB.symbol} =</span>
                       <span className="font-semibold text-slate-300">
-                        {fillDetails.orderPriceReciprocal.toFixed(4)} {tokenA.symbol}
+                        {fillDetails.orderPriceReciprocal < 0.0001
+                          ? fillDetails.orderPriceReciprocal.toExponential(4)
+                          : fillDetails.orderPriceReciprocal.toFixed(4)}{" "}
+                        {tokenA.symbol}
                       </span>
                     </div>
                   </div>
+
+                  {/* Minswap Market Comparison */}
+                  {minswapPrice && minswapPrice.available && (
+                    <div className="p-2 rounded-lg bg-blue-950/20 border border-blue-500/30 text-[10px] font-mono space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-blue-400 font-sans font-bold flex items-center gap-1 uppercase tracking-wider text-[9px]">
+                          <ExternalLink className="w-2.5 h-2.5" />
+                          <span>Minswap Market</span>
+                        </span>
+                        {(() => {
+                          if (minswapPrice.priceBaseInQuote <= 0) return null;
+                          const diff =
+                            ((fillDetails.orderPriceNum - minswapPrice.priceBaseInQuote) /
+                              minswapPrice.priceBaseInQuote) *
+                            100;
+                          return (
+                            <span
+                              className={`px-1 py-0.2 rounded font-sans font-bold ${
+                                Math.abs(diff) < 0.5
+                                  ? "bg-slate-800 text-slate-300"
+                                  : diff > 0
+                                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                                  : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                              }`}
+                            >
+                              {diff > 0 ? `+${diff.toFixed(1)}%` : `${diff.toFixed(1)}%`} vs Minswap
+                            </span>
+                          );
+                        })()}
+                      </div>
+                      <div className="flex items-center justify-between text-slate-300">
+                        <span>1 {tokenA.symbol} =</span>
+                        <span className="font-semibold text-white">
+                          {formatMinswapRate(minswapPrice.priceBaseInQuote)} {tokenB.symbol}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-400 border-t border-blue-500/20 pt-0.5">
+                        <span>1 {tokenB.symbol} =</span>
+                        <span className="font-semibold text-slate-300">
+                          {formatMinswapRate(minswapPrice.priceQuoteInBase)} {tokenA.symbol}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* 1. YOU GET (Prominent Emerald Card) */}

@@ -82,3 +82,16 @@ export interface FetchProgress {
   stage: string;
   itemType?: string; // e.g. "UTxOs", "Orders", "Vaults", "Addresses"
 }
+
+export interface MinswapPriceInfo {
+  available: boolean;
+  baseSymbol: string;
+  quoteSymbol: string;
+  priceBaseInQuote: number; // 1 Base Token = X Quote Tokens (e.g. 1 GENS = 0.000774 ADA)
+  priceQuoteInBase: number; // 1 Quote Token = Y Base Tokens (e.g. 1 ADA = 1,292.66 GENS)
+  baseUsdPrice?: number;
+  quoteUsdPrice?: number;
+  lastUpdated: number;
+  error?: string;
+}
+

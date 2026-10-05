@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { getTradingPairs } from "../config/dex";
+import { formatMinswapRate } from "../services/minswap";
 
 export type AppTab = "trade" | "staking" | "rewards";
 
@@ -36,6 +37,7 @@ export const Header: React.FC<HeaderProps> = ({
     setActivePair,
     loadingOrderBook,
     refreshOrderBook,
+    minswapPrice,
   } = useApp();
 
   const [pairDropdownOpen, setPairDropdownOpen] = React.useState(false);
@@ -113,45 +115,64 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Pair Selector (only active when on Trade tab) */}
         {currentTab === "trade" && (
-          <div className="relative hidden md:block">
-            <button
-              onClick={() => setPairDropdownOpen(!pairDropdownOpen)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#182234] border border-[#1f2d44] hover:border-slate-600 transition-colors text-xs font-semibold text-slate-200"
-            >
-              <span className="text-white">{activePair.baseToken.symbol}</span>
-              <span className="text-slate-500">/</span>
-              <span className="text-slate-400">{activePair.quoteToken.symbol}</span>
-              <ChevronDown className="w-3 h-3 text-slate-400" />
-            </button>
+          <div className="flex items-center gap-2.5">
+            <div className="relative hidden md:block">
+              <button
+                onClick={() => setPairDropdownOpen(!pairDropdownOpen)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#182234] border border-[#1f2d44] hover:border-slate-600 transition-colors text-xs font-semibold text-slate-200"
+              >
+                <span className="text-white">{activePair.baseToken.symbol}</span>
+                <span className="text-slate-500">/</span>
+                <span className="text-slate-400">{activePair.quoteToken.symbol}</span>
+                <ChevronDown className="w-3 h-3 text-slate-400" />
+              </button>
 
-            {pairDropdownOpen && (
-              <div className="absolute top-full left-0 mt-1.5 w-48 rounded-xl bg-[#121824] border border-[#1f2d44] shadow-2xl p-1.5 z-50">
-                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2.5 py-1">
-                  Trading Pairs
+              {pairDropdownOpen && (
+                <div className="absolute top-full left-0 mt-1.5 w-48 rounded-xl bg-[#121824] border border-[#1f2d44] shadow-2xl p-1.5 z-50">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2.5 py-1">
+                    Trading Pairs
+                  </div>
+                  {getTradingPairs(settings.network).map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => {
+                        setActivePair(p);
+                        setPairDropdownOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        activePair.id === p.id
+                          ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                          : "text-slate-300 hover:bg-[#182234]"
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-semibold">{p.baseToken.symbol}</span>
+                        <span className="text-slate-500">/</span>
+                        <span className="text-slate-400">{p.quoteToken.symbol}</span>
+                      </div>
+                      {activePair.id === p.id && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                      )}
+                    </button>
+                  ))}
                 </div>
-                {getTradingPairs(settings.network).map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      setActivePair(p);
-                      setPairDropdownOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                      activePair.id === p.id
-                        ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                        : "text-slate-300 hover:bg-[#182234]"
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-semibold">{p.baseToken.symbol}</span>
-                      <span className="text-slate-500">/</span>
-                      <span className="text-slate-400">{p.quoteToken.symbol}</span>
-                    </div>
-                    {activePair.id === p.id && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                    )}
-                  </button>
-                ))}
+              )}
+            </div>
+
+            {/* Minswap reference pill */}
+            {minswapPrice && minswapPrice.available && (
+              <div
+                className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-950/30 border border-blue-500/25 text-[11px] font-mono text-slate-300 shadow-sm"
+                title={`Minswap market rate:\n1 ${activePair.baseToken.symbol} = ${formatMinswapRate(minswapPrice.priceBaseInQuote)} ${activePair.quoteToken.symbol}\n1 ${activePair.quoteToken.symbol} = ${formatMinswapRate(minswapPrice.priceQuoteInBase)} ${activePair.baseToken.symbol}`}
+              >
+                <span className="text-[10px] text-blue-400 font-sans font-bold">Minswap:</span>
+                <span className="text-white font-semibold">
+                  1 {activePair.baseToken.symbol} = {formatMinswapRate(minswapPrice.priceBaseInQuote)} {activePair.quoteToken.symbol}
+                </span>
+                <span className="text-slate-500">⇄</span>
+                <span className="text-slate-300">
+                  1 {activePair.quoteToken.symbol} = {formatMinswapRate(minswapPrice.priceQuoteInBase)} {activePair.baseToken.symbol}
+                </span>
               </div>
             )}
           </div>

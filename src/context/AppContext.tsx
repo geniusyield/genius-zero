@@ -8,6 +8,7 @@ import {
   TradingPair,
   WalletState,
   FetchProgress,
+  MinswapPriceInfo,
 } from "../types";
 import {
   DEFAULT_TRADING_PAIRS,
@@ -30,6 +31,7 @@ import {
   fillDexOrder,
   PlaceOrderParams,
 } from "../services/trade";
+import { fetchMinswapPrice } from "../services/minswap";
 
 interface AppContextType {
   settings: AppSettings;
@@ -49,6 +51,9 @@ interface AppContextType {
   placeOrder: (params: Omit<PlaceOrderParams, "pair">) => Promise<string>;
   cancelOrder: (order: DexOrder) => Promise<string>;
   fillOrder: (order: DexOrder, fillAmount?: bigint) => Promise<string>;
+  minswapPrice: MinswapPriceInfo | null;
+  loadingMinswapPrice: boolean;
+  refreshMinswapPrice: () => Promise<void>;
   actionPending: boolean;
   actionMessage: string | null;
   error: string | null;
@@ -150,6 +155,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   const [actionPending, setActionPending] = useState<boolean>(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [minswapPrice, setMinswapPrice] = useState<MinswapPriceInfo | null>(null);
+  const [loadingMinswapPrice, setLoadingMinswapPrice] = useState<boolean>(false);
 
   const [lucid, setLucid] = useState<LucidEvolution | null>(null);
 
@@ -547,6 +555,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [lucid, settings.network, activePair, wallet.pkh, wallet.pkhs, refreshWalletBalances]);
 
+  // Minswap price fetching
+  const refreshMinswapPrice = useCallback(async () => {
+    setLoadingMinswapPrice(true);
+    try {
+      const price = await fetchMinswapPrice(activePair, settings.network);
+      setMinswapPrice(price);
+    } catch (err) {
+      console.warn("Minswap price fetch failed:", err);
+    } finally {
+      setLoadingMinswapPrice(false);
+    }
+  }, [activePair, settings.network]);
+
+  // Refresh Minswap price whenever pair or network changes
+  useEffect(() => {
+    refreshMinswapPrice();
+  }, [refreshMinswapPrice]);
+
   // Trigger refresh when pair, network, or lucid changes
   useEffect(() => {
     if (lucid) {
@@ -559,9 +585,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!lucid || settings.autoRefreshInterval <= 0) return;
     const interval = setInterval(() => {
       refreshOrderBook();
+      refreshMinswapPrice();
     }, settings.autoRefreshInterval * 1000);
     return () => clearInterval(interval);
-  }, [lucid, settings.autoRefreshInterval, refreshOrderBook]);
+  }, [lucid, settings.autoRefreshInterval, refreshOrderBook, refreshMinswapPrice]);
 
   // Place Limit Order
   const placeOrder = async (params: Omit<PlaceOrderParams, "pair">): Promise<string> => {
@@ -742,6 +769,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         placeOrder,
         cancelOrder,
         fillOrder,
+        minswapPrice,
+        loadingMinswapPrice,
+        refreshMinswapPrice,
         actionPending,
         actionMessage,
         error,

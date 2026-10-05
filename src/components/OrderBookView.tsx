@@ -1,8 +1,9 @@
 import React from "react";
-import { ArrowUp, ArrowDown, Activity, RefreshCw } from "lucide-react";
+import { ArrowUp, ArrowDown, Activity, RefreshCw, ExternalLink } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { DexOrder } from "../types";
 import { ProgressBar } from "./ProgressBar";
+import { formatMinswapRate } from "../services/minswap";
 
 interface OrderBookViewProps {
   onSelectPrice?: (price: number, amount?: number) => void;
@@ -15,7 +16,16 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
   onSelectOrder,
   selectedOrderKey,
 }) => {
-  const { orderBook, activePair, loadingOrderBook, orderBookProgress, cancelRefreshOrderBook } = useApp();
+  const {
+    orderBook,
+    activePair,
+    loadingOrderBook,
+    orderBookProgress,
+    cancelRefreshOrderBook,
+    minswapPrice,
+    loadingMinswapPrice,
+    refreshMinswapPrice,
+  } = useApp();
 
   const tokenA = activePair.baseToken;
   const tokenB = activePair.quoteToken;
@@ -178,48 +188,107 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
         )}
       </div>
 
-      {/* Center Bar: Rates & Spread */}
-      <div className="px-4 py-2 border-y border-[#1f2d44] bg-[#0b0e14] flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
-        <div className="flex items-center gap-3">
-          {orderBook.lowestAsk ? (
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-slate-400 text-[11px]">Best Offer Rate:</span>
-              <span className="font-semibold text-rose-300">
-                1 {tokenA.symbol} = {formatPrice(orderBook.lowestAsk)} {tokenB.symbol}
-              </span>
-              <span className="text-slate-500 text-[10px]">
-                (1 {tokenB.symbol} = {formatPrice(1 / orderBook.lowestAsk)} {tokenA.symbol})
-              </span>
-            </div>
-          ) : (
-            <span className="text-slate-500 italic text-xs">No active orders</span>
-          )}
+      {/* Center Bar: Rates, Spread & Minswap Comparison */}
+      <div className="border-y border-[#1f2d44] bg-[#0b0e14] divide-y divide-[#1f2d44]/60">
+        {/* Row 1: Genius Yield Best Offer & Spread */}
+        <div className="px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-slate-400 text-[11px] font-sans font-semibold">GY Best Offer:</span>
+            {orderBook.lowestAsk ? (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-semibold text-rose-300">
+                  1 {tokenA.symbol} = {formatPrice(orderBook.lowestAsk)} {tokenB.symbol}
+                </span>
+                <span className="text-slate-500 text-[10px]">
+                  (1 {tokenB.symbol} = {formatPrice(1 / orderBook.lowestAsk)} {tokenA.symbol})
+                </span>
+              </div>
+            ) : (
+              <span className="text-slate-500 italic text-xs font-sans">No active orders</span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 text-[11px] text-slate-400">
+            <span className="font-sans font-semibold">Spread:</span>
+            {orderBook.spread !== null ? (
+              orderBook.spread < 0 ? (
+                <span className="font-bold text-amber-300 flex items-center gap-1.5 bg-amber-500/15 px-2.5 py-0.5 rounded border border-amber-500/40 animate-pulse">
+                  <span>⚡ Arbitrage Spread:</span>
+                  <span>{formatPrice(Math.abs(orderBook.spread))} {tokenB.symbol}</span>
+                  {orderBook.spreadPercentage !== null && (
+                    <span className="text-[10px]">({Math.abs(orderBook.spreadPercentage).toFixed(2)}%)</span>
+                  )}
+                </span>
+              ) : (
+                <span className="font-semibold text-slate-200">
+                  {formatPrice(orderBook.spread)} {tokenB.symbol}
+                  {orderBook.spreadPercentage !== null && (
+                    <span className="text-slate-400 text-[10px] ml-1">
+                      ({orderBook.spreadPercentage.toFixed(2)}%)
+                    </span>
+                  )}
+                </span>
+              )
+            ) : (
+              <span className="text-slate-600">—</span>
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 text-[11px] text-slate-400">
-          <span>Spread:</span>
-          {orderBook.spread !== null ? (
-            orderBook.spread < 0 ? (
-              <span className="font-bold text-amber-300 flex items-center gap-1.5 bg-amber-500/15 px-2.5 py-0.5 rounded border border-amber-500/40 animate-pulse">
-                <span>⚡ Arbitrage Spread:</span>
-                <span>{formatPrice(Math.abs(orderBook.spread))} {tokenB.symbol}</span>
-                {orderBook.spreadPercentage !== null && (
-                  <span className="text-[10px]">({Math.abs(orderBook.spreadPercentage).toFixed(2)}%)</span>
+        {/* Row 2: Minswap Reference Rate (In Both Directions) */}
+        <div className="px-4 py-1.5 bg-[#0e1422] flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/15 border border-blue-500/30 text-blue-400 font-sans font-bold text-[10px]">
+              <ExternalLink className="w-3 h-3" />
+              <span>Minswap Market:</span>
+            </div>
+            {minswapPrice && minswapPrice.available ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-white font-semibold">
+                  1 {tokenA.symbol} = {formatMinswapRate(minswapPrice.priceBaseInQuote)} {tokenB.symbol}
+                </span>
+                <span className="text-slate-500">⇄</span>
+                <span className="text-slate-300">
+                  1 {tokenB.symbol} = {formatMinswapRate(minswapPrice.priceQuoteInBase)} {tokenA.symbol}
+                </span>
+                {orderBook.lowestAsk && minswapPrice.priceBaseInQuote > 0 && (
+                  (() => {
+                    const diffPercent =
+                      ((orderBook.lowestAsk - minswapPrice.priceBaseInQuote) /
+                        minswapPrice.priceBaseInQuote) *
+                      100;
+                    const isHigher = diffPercent > 0;
+                    return (
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded font-sans font-semibold ${
+                          isHigher
+                            ? "bg-amber-500/15 text-amber-300 border border-amber-500/30"
+                            : "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                        }`}
+                        title={`Genius Yield lowest ask is ${Math.abs(diffPercent).toFixed(1)}% ${isHigher ? "higher" : "lower"} than Minswap`}
+                      >
+                        GY Ask {isHigher ? `+${diffPercent.toFixed(1)}%` : `${diffPercent.toFixed(1)}%`} vs Minswap
+                      </span>
+                    );
+                  })()
                 )}
-              </span>
+              </div>
             ) : (
-              <span className="font-semibold text-slate-200">
-                {formatPrice(orderBook.spread)} {tokenB.symbol}
-                {orderBook.spreadPercentage !== null && (
-                  <span className="text-slate-400 text-[10px] ml-1">
-                    ({orderBook.spreadPercentage.toFixed(2)}%)
-                  </span>
-                )}
+              <span className="text-slate-500 italic text-[11px] font-sans">
+                {loadingMinswapPrice ? "Fetching Minswap rate..." : (minswapPrice?.error || "Minswap rate unavailable")}
               </span>
-            )
-          ) : (
-            <span className="text-slate-600">—</span>
-          )}
+            )}
+          </div>
+
+          <button
+            onClick={refreshMinswapPrice}
+            disabled={loadingMinswapPrice}
+            type="button"
+            title="Refresh Minswap rate"
+            className="text-slate-400 hover:text-blue-400 transition-colors p-1 rounded hover:bg-[#1f2d44]"
+          >
+            <RefreshCw className={`w-3 h-3 ${loadingMinswapPrice ? "animate-spin text-blue-400" : ""}`} />
+          </button>
         </div>
       </div>
 
