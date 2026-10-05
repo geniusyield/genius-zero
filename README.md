@@ -65,7 +65,7 @@ Genius Zero is designed so that anyone—from technical developers to ordinary c
 You can run Genius Zero locally on your own machine in under a minute:
 ```bash
 # Clone the repository
-git clone https://github.com/geniusyield/genius-zero.git
+git clone https://github.com/brunjlar/genius-zero.git
 cd genius-zero
 
 # Install dependencies (Node 20+)

@@ -43,6 +43,28 @@ import {
 } from "../src/contracts/contract.types";
 import { fromAddress, assetClassDFromUnit } from "../src/contracts/utils";
 
+function loadEnv() {
+  const envFiles = [".env.test", ".env.local", ".env"];
+  for (const file of envFiles) {
+    const fullPath = path.resolve(process.cwd(), file);
+    if (fs.existsSync(fullPath)) {
+      const content = fs.readFileSync(fullPath, "utf-8");
+      for (const line of content.split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith("#") && trimmed.includes("=")) {
+          const [key, ...rest] = trimmed.split("=");
+          const val = rest.join("=").replace(/^["']|["']$/g, "").trim();
+          if (!process.env[key.trim()]) {
+            process.env[key.trim()] = val;
+          }
+        }
+      }
+    }
+  }
+}
+
+loadEnv();
+
 async function main() {
   console.log("========================================================================");
   console.log("  GENIUS ZERO: Contracts & Configuration Integrity Tests");
@@ -152,8 +174,13 @@ async function main() {
   console.log("3. Verifying Mainnet On-Chain Reference UTxOs and Plutus Execution...");
   const blockfrostKey =
     process.env.VITE_BLOCKFROST_API_KEY_MAINNET ||
-    process.env.BLOCKFROST_API_KEY_MAINNET ||
-    "mainnetYourApiKeyHere";
+    process.env.BLOCKFROST_API_KEY_MAINNET;
+
+  if (!blockfrostKey) {
+    throw new Error(
+      "Missing BLOCKFROST_API_KEY_MAINNET. Please provide it in .env or as an environment variable."
+    );
+  }
 
   const lucid = await Lucid(
     new Blockfrost("https://cardano-mainnet.blockfrost.io/api/v0", blockfrostKey),

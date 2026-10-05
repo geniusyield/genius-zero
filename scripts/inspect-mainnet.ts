@@ -1,9 +1,40 @@
+import fs from "fs";
+import path from "path";
 import { Blockfrost, Lucid } from "@lucid-evolution/lucid";
 import { DEX_CONSTANTS, DEFAULT_MAINNET_TRADING_PAIRS } from "../src/config/dex";
 import { fetchAllActiveParsedOrders, fetchAllOrdersForPair } from "../src/services/orderbook";
 
+function loadEnv() {
+  const envFiles = [".env.test", ".env.local", ".env"];
+  for (const file of envFiles) {
+    const fullPath = path.resolve(process.cwd(), file);
+    if (fs.existsSync(fullPath)) {
+      const content = fs.readFileSync(fullPath, "utf-8");
+      for (const line of content.split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith("#") && trimmed.includes("=")) {
+          const [key, ...rest] = trimmed.split("=");
+          const val = rest.join("=").replace(/^["']|["']$/g, "").trim();
+          if (!process.env[key.trim()]) {
+            process.env[key.trim()] = val;
+          }
+        }
+      }
+    }
+  }
+}
+
+loadEnv();
+
 async function checkMainnet() {
-  const key = "mainnetYourApiKeyHere";
+  const key =
+    process.env.VITE_BLOCKFROST_API_KEY_MAINNET ||
+    process.env.BLOCKFROST_API_KEY_MAINNET;
+  if (!key) {
+    throw new Error(
+      "Missing BLOCKFROST_API_KEY_MAINNET. Please provide it in .env or as an environment variable."
+    );
+  }
   const lucid = await Lucid(new Blockfrost("https://cardano-mainnet.blockfrost.io/api/v0", key), "Mainnet");
   const constants = DEX_CONSTANTS.mainnet;
   const valCred = {
