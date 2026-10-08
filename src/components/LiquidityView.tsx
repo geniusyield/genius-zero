@@ -17,11 +17,16 @@ import {
   ChevronRight,
   TrendingUp,
   Sparkles,
+  Trash2,
+  AlertTriangle,
+  X,
+  CheckCircle2,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { DEX_CONSTANTS } from "../config/dex";
 import { LiquidityVault, FetchProgress } from "../types";
 import { fetchAllLiquidityVaults, getVaultAdaReserve, formatNumericPrice } from "../services/liquidity";
+import { cancelLiquidityVault } from "../contracts/slv";
 
 interface LiquidityViewProps {
   onOpenWallet: () => void;
@@ -39,11 +44,40 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
+  // Cancellation State
+  const [cancellingVault, setCancellingVault] = useState<LiquidityVault | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelTxHash, setCancelTxHash] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
   // Filters
   const [viewFilter, setViewFilter] = useState<"ALL" | "MY">("ALL");
   const [selectedPair, setSelectedPair] = useState<string>("ALL");
-  const [selectedPricingType, setSelectedPricingType] = useState<"ALL" | "fixed" | "oracle_range">("ALL");
+  const [selectedPricingType, setSelectedPricingType] = useState<"ALL" | "fixed" | "delta_oracle" | "oracle_range">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
+
+  const handleConfirmCancel = async () => {
+    if (!lucid || !cancellingVault) return;
+    setIsCancelling(true);
+    setCancelError(null);
+    try {
+      const txHash = await cancelLiquidityVault(lucid, cancellingVault);
+      setCancelTxHash(txHash);
+      // Optimistically remove the cancelled vault from the list:
+      setVaults((prev) =>
+        prev.filter(
+          (v) =>
+            v.utxoRef.txHash !== cancellingVault.utxoRef.txHash ||
+            v.utxoRef.outputIndex !== cancellingVault.utxoRef.outputIndex
+        )
+      );
+    } catch (err: any) {
+      console.error("Failed to cancel vault:", err);
+      setCancelError(err?.message || "Failed to submit cancellation transaction to Cardano.");
+    } finally {
+      setIsCancelling(false);
+    }
+  };
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -112,8 +146,8 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
   }, [vaults]);
 
   // Pricing type counts
-  const oracleRangeCount = useMemo(
-    () => vaults.filter((v) => v.pricingType === "oracle_range").length,
+  const oracleDeltaCount = useMemo(
+    () => vaults.filter((v) => v.pricingType === "delta_oracle" || v.pricingType === "oracle_range").length,
     [vaults]
   );
   const fixedPriceCount = useMemo(
@@ -155,8 +189,12 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
       }
 
       // 3. Pricing type filter
-      if (selectedPricingType !== "ALL" && v.pricingType !== selectedPricingType) {
-        return false;
+      if (selectedPricingType !== "ALL") {
+        if (selectedPricingType === "delta_oracle" || selectedPricingType === "oracle_range") {
+          if (v.pricingType !== "delta_oracle" && v.pricingType !== "oracle_range") return false;
+        } else if (v.pricingType !== selectedPricingType) {
+          return false;
+        }
       }
 
       // 4. Search query
@@ -328,14 +366,14 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
               All Types ({vaults.length})
             </button>
             <button
-              onClick={() => setSelectedPricingType("oracle_range")}
+              onClick={() => setSelectedPricingType("delta_oracle")}
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                selectedPricingType === "oracle_range"
+                selectedPricingType === "delta_oracle" || selectedPricingType === "oracle_range"
                   ? "bg-emerald-950 text-emerald-300 border border-emerald-700/50"
                   : "bg-[#182234] text-slate-400 hover:text-slate-200 border border-transparent"
               }`}
             >
-              Concentrated Range ({oracleRangeCount})
+              Oracle Dynamic ({oracleDeltaCount})
             </button>
             <button
               onClick={() => setSelectedPricingType("fixed")}
@@ -503,7 +541,7 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
                           : "bg-emerald-950 text-emerald-300 border border-emerald-800/40"
                       }`}
                     >
-                      {vault.pricingType === "fixed" ? "Fixed Price" : "Concentrated Range"}
+                      {vault.pricingType === "fixed" ? "Fixed Price" : "Oracle Dynamic"}
                     </span>
                   </div>
                 </div>
@@ -534,7 +572,7 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
                   <div className="flex items-center justify-between text-[11px] font-bold text-purple-300">
                     <span className="flex items-center gap-1">
                       <ArrowRightLeft className="w-3 h-3 text-purple-400" />
-                      Exchange Rates (Both Directions)
+                      Two-Way Order Pricing
                     </span>
                   </div>
 
@@ -554,56 +592,44 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
                             {formatNumericPrice(priceBaseToQuote)} {quote.symbol}
                           </span>
                         </div>
+                        {vault.fixedPrice.hasReverse ? (
+                          <div className="flex items-center justify-between bg-[#0b0e14] p-2 rounded-xl border border-[#1f2d44]/40">
+                            <span className="text-slate-400 font-medium">1 {quote.symbol} =</span>
+                            <span className="font-bold text-emerald-400">
+                              {formatNumericPrice(priceQuoteToBase)} {base.symbol}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-slate-500 italic px-1">
+                            One-way order (no reverse price)
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {vault.oracleDelta && (
+                    <div className="space-y-1.5 text-xs">
+                      <div className="flex items-center justify-between bg-[#0b0e14] p-2 rounded-xl border border-[#1f2d44]/40">
+                        <span className="text-slate-400 font-medium">Straight:</span>
+                        <span className="font-bold text-emerald-400 text-xs">
+                          {vault.oracleDelta.formattedStraight}
+                        </span>
+                      </div>
+                      {vault.oracleDelta.hasReverse && vault.oracleDelta.formattedReverse ? (
                         <div className="flex items-center justify-between bg-[#0b0e14] p-2 rounded-xl border border-[#1f2d44]/40">
-                          <span className="text-slate-400 font-medium">1 {quote.symbol} =</span>
-                          <span className="font-bold text-emerald-400">
-                            {formatNumericPrice(priceQuoteToBase)} {base.symbol}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {vault.oracleRange && (() => {
-                    // Min/Max Quote per Base
-                    const minQuotePerBase = isReversed
-                      ? vault.oracleRange.minPriceBtoA
-                      : vault.oracleRange.minPriceAtoB;
-                    const maxQuotePerBase = isReversed
-                      ? vault.oracleRange.maxPriceBtoA
-                      : vault.oracleRange.maxPriceAtoB;
-
-                    // Min/Max Base per Quote
-                    const minBasePerQuote = isReversed
-                      ? vault.oracleRange.minPriceAtoB
-                      : vault.oracleRange.minPriceBtoA;
-                    const maxBasePerQuote = isReversed
-                      ? vault.oracleRange.maxPriceAtoB
-                      : vault.oracleRange.maxPriceBtoA;
-
-                    return (
-                      <div className="space-y-1.5 text-xs">
-                        <div className="flex flex-col bg-[#0b0e14] p-2 rounded-xl border border-[#1f2d44]/40">
-                          <span className="text-[10px] text-slate-400 font-medium">
-                            Range ({quote.symbol} per {base.symbol}):
-                          </span>
-                          <span className="font-bold text-emerald-400 text-xs">
-                            {formatNumericPrice(minQuotePerBase)} – {formatNumericPrice(maxQuotePerBase)}{" "}
-                            {quote.symbol} / {base.symbol}
-                          </span>
-                        </div>
-                        <div className="flex flex-col bg-[#0b0e14] p-2 rounded-xl border border-[#1f2d44]/40">
-                          <span className="text-[10px] text-slate-400 font-medium">
-                            Inverse Range ({base.symbol} per {quote.symbol}):
-                          </span>
+                          <span className="text-slate-400 font-medium">Reverse Leg:</span>
                           <span className="font-bold text-sky-400 text-xs">
-                            {formatNumericPrice(minBasePerQuote)} – {formatNumericPrice(maxBasePerQuote)}{" "}
-                            {base.symbol} / {quote.symbol}
+                            {vault.oracleDelta.formattedReverse}
                           </span>
                         </div>
-                      </div>
-                    );
-                  })()}
+                      ) : (
+                        <div className="text-[10px] text-slate-500 italic px-1">
+                          One-way oracle order
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Footer Metadata */}
@@ -642,6 +668,25 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {/* Cancel Vault Button for Owner */}
+                {vault.isUserVault && (
+                  <button
+                    onClick={() => {
+                      if (!wallet.connected) {
+                        onOpenWallet();
+                      } else {
+                        setCancellingVault(vault);
+                        setCancelTxHash(null);
+                        setCancelError(null);
+                      }
+                    }}
+                    className="w-full mt-2 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border border-rose-500/30 transition-all font-semibold text-xs shadow-sm active:scale-[0.99]"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Cancel Vault & Reclaim Assets</span>
+                  </button>
+                )}
               </div>
             );
           })}
@@ -693,6 +738,168 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
               <option value={24}>24 / page</option>
               <option value={60}>60 / page</option>
             </select>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Vault Confirmation Modal */}
+      {cancellingVault && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+          <div className="bg-[#121824] border border-[#1f2d44] rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#1f2d44]">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-white">Cancel Smart Liquidity Vault</h3>
+                  <p className="text-xs text-slate-400">Reclaim locked assets to your wallet</p>
+                </div>
+              </div>
+              {!isCancelling && (
+                <button
+                  onClick={() => {
+                    setCancellingVault(null);
+                    setCancelTxHash(null);
+                    setCancelError(null);
+                  }}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#182234] transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4">
+              {cancelTxHash ? (
+                <div className="p-5 rounded-2xl bg-emerald-950/30 border border-emerald-800/40 text-center space-y-3">
+                  <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto" />
+                  <div className="space-y-1">
+                    <h4 className="font-bold text-white text-sm">Cancellation Submitted!</h4>
+                    <p className="text-xs text-slate-300">
+                      The cancellation transaction was broadcast to Cardano. Your assets will appear back in your wallet as soon as the block confirms.
+                    </p>
+                  </div>
+                  <div className="pt-2">
+                    <a
+                      href={`https://${settings.network === "preprod" ? "preprod." : ""}cardanoscan.io/transaction/${cancelTxHash}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-400 hover:underline"
+                    >
+                      <span>View on Cardanoscan</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setCancellingVault(null);
+                      setCancelTxHash(null);
+                      setCancelError(null);
+                    }}
+                    className="w-full mt-3 py-2.5 rounded-xl bg-[#1f2d44] hover:bg-[#283854] text-white text-xs font-bold transition-colors"
+                  >
+                    Done
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="p-4 rounded-2xl bg-[#0b0e14] border border-[#1a2333] space-y-3">
+                    <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                      Trading Pair & Position
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm text-white">
+                          {cancellingVault.canonicalPair.base.symbol} / {cancellingVault.canonicalPair.quote.symbol}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#141b2b] text-purple-300 border border-purple-800/30">
+                          {cancellingVault.pricingType === "fixed" ? "Fixed Price" : "Oracle Dynamic"}
+                        </span>
+                      </div>
+                      <span className="font-mono text-xs text-slate-400">
+                        #{cancellingVault.utxoRef.outputIndex}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Assets to reclaim */}
+                  <div className="p-4 rounded-2xl bg-[#141b2b] border border-[#1f2d44] space-y-2">
+                    <div className="text-[11px] font-semibold text-purple-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <Coins className="w-3.5 h-3.5 text-purple-400" />
+                      <span>Assets Returning To Your Wallet</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+                      <div className="bg-[#0b0e14] p-2.5 rounded-xl border border-[#1f2d44]/50">
+                        <div className="text-[10px] text-slate-400">{cancellingVault.tokenA.symbol}</div>
+                        <div className="font-bold text-slate-100 text-sm truncate" title={cancellingVault.formattedAmountA}>
+                          {cancellingVault.formattedAmountA}
+                        </div>
+                      </div>
+                      <div className="bg-[#0b0e14] p-2.5 rounded-xl border border-[#1f2d44]/50">
+                        <div className="text-[10px] text-slate-400">{cancellingVault.tokenB.symbol}</div>
+                        <div className="font-bold text-slate-100 text-sm truncate" title={cancellingVault.formattedAmountB}>
+                          {cancellingVault.formattedAmountB}
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-slate-400 italic pt-1">
+                      All locked token reserves and the refundable ADA deposit will be returned in full to your address.
+                    </p>
+                  </div>
+
+                  {/* Notice */}
+                  <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs flex items-start gap-2.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div className="space-y-0.5 leading-relaxed">
+                      <span className="font-bold">On-chain transaction required</span>
+                      <p className="text-[11px] text-amber-300/80">
+                        Cancelling burns the position NFT and releases your funds from the Plutus script. A standard network fee (~0.35 ₳) will be required to execute the transaction.
+                      </p>
+                    </div>
+                  </div>
+
+                  {cancelError && (
+                    <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
+                      <span className="font-bold">Cancellation Failed:</span> {cancelError}
+                    </div>
+                  )}
+
+                  {/* Buttons */}
+                  <div className="flex items-center gap-3 pt-2">
+                    <button
+                      onClick={() => {
+                        setCancellingVault(null);
+                        setCancelError(null);
+                      }}
+                      disabled={isCancelling}
+                      className="flex-1 py-2.5 rounded-xl bg-[#182234] hover:bg-[#202c42] text-slate-300 text-xs font-semibold border border-[#2d3d5a] transition-colors disabled:opacity-50"
+                    >
+                      Keep Vault
+                    </button>
+                    <button
+                      onClick={handleConfirmCancel}
+                      disabled={isCancelling}
+                      className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white text-xs font-bold transition-all shadow-lg shadow-rose-600/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {isCancelling ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Confirming in Wallet...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 className="w-4 h-4" />
+                          <span>Confirm Cancellation</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}

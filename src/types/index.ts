@@ -95,13 +95,29 @@ export interface MinswapPriceInfo {
   error?: string;
 }
 
-export type VaultPricingType = "fixed" | "oracle_range";
+export type VaultPricingType = "fixed" | "delta_oracle" | "oracle_range";
 
 export interface LiquidityVaultPrice {
   priceAtoB: number; // 1 Unit of Token A = X Units of Token B
   priceBtoA: number; // 1 Unit of Token B = Y Units of Token A
   formattedAtoB: string;
   formattedBtoA: string;
+  hasReverse?: boolean;
+  reversePriceAtoB?: number;
+  reversePriceBtoA?: number;
+  formattedReverseAtoB?: string;
+  formattedReverseBtoA?: string;
+}
+
+export interface LiquidityVaultOracleDelta {
+  oracleKey?: string;
+  straightSpreadPercent: number; // e.g. 2.0 (%)
+  straightOffset: number;
+  hasReverse: boolean;
+  reverseSpreadPercent?: number;
+  reverseOffset?: number;
+  formattedStraight: string; // e.g. "+2.0% spread"
+  formattedReverse?: string;
 }
 
 export interface LiquidityVaultRange {
@@ -109,8 +125,8 @@ export interface LiquidityVaultRange {
   maxPriceBtoA: number;
   minPriceAtoB: number;
   maxPriceAtoB: number;
-  formattedRangeBtoA: string; // e.g. "0.0050 – 0.0150 ADA / GENS"
-  formattedRangeAtoB: string; // e.g. "66.67 – 200.00 GENS / ADA"
+  formattedRangeBtoA: string;
+  formattedRangeAtoB: string;
   oracleHash?: string;
 }
 
@@ -139,6 +155,7 @@ export interface LiquidityVault {
   formattedAmountB: string;
   pricingType: VaultPricingType;
   fixedPrice?: LiquidityVaultPrice;
+  oracleDelta?: LiquidityVaultOracleDelta;
   oracleRange?: LiquidityVaultRange;
   canonicalPair: CanonicalPair;
   containedFeeLovelace?: bigint;

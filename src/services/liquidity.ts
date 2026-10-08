@@ -6,6 +6,7 @@ import {
   FetchProgress,
   VaultPricingType,
   LiquidityVaultPrice,
+  LiquidityVaultOracleDelta,
   LiquidityVaultRange,
   CanonicalPair,
 } from "../types";
@@ -16,6 +17,7 @@ import {
   DEFAULT_MAINNET_TOKENS,
   DEFAULT_PREPROD_TOKENS,
 } from "../config/dex";
+import { decodePlutusAddress } from "../contracts/slv";
 
 /**
  * Resolves a token's metadata from its unit (lovelace or policyId + assetNameHex).
@@ -230,11 +232,12 @@ export function decodePricing(
 ): {
   pricingType: VaultPricingType;
   fixedPrice?: LiquidityVaultPrice;
+  oracleDelta?: LiquidityVaultOracleDelta;
   oracleRange?: LiquidityVaultRange;
 } {
   // Field 5 in SLV datum
   if (pricing.index === 0) {
-    // Fixed Price
+    // Fixed Price: Constr 0 [straight: Rational, reverse: Option<Rational>]
     const num = BigInt(pricing.fields[0].fields[0]);
     const den = BigInt(pricing.fields[0].fields[1]);
     const rawRatio = den > 0n ? Number(num) / Number(den) : 0;
@@ -244,6 +247,22 @@ export function decodePricing(
     const priceAtoB = rawRatio * decimalFactor;
     const priceBtoA = priceAtoB > 0 ? 1 / priceAtoB : 0;
 
+    let hasReverse = false;
+    let reversePriceAtoB: number | undefined;
+    let reversePriceBtoA: number | undefined;
+
+    // Check if reverse price is set (Option Constr 0 = Some)
+    if (pricing.fields[1] && pricing.fields[1].index === 0 && pricing.fields[1].fields?.[0]) {
+      const revNum = BigInt(pricing.fields[1].fields[0].fields[0]);
+      const revDen = BigInt(pricing.fields[1].fields[0].fields[1]);
+      const revRawRatio = revDen > 0n ? Number(revNum) / Number(revDen) : 0;
+      // In reverse direction: units of Token A per unit of Token B
+      const revDecimalFactor = Math.pow(10, tokenB.decimals - tokenA.decimals);
+      reversePriceBtoA = revRawRatio * revDecimalFactor;
+      reversePriceAtoB = reversePriceBtoA > 0 ? 1 / reversePriceBtoA : 0;
+      hasReverse = true;
+    }
+
     return {
       pricingType: "fixed",
       fixedPrice: {
@@ -251,38 +270,68 @@ export function decodePricing(
         priceBtoA,
         formattedAtoB: `1 ${tokenA.symbol} = ${formatNumericPrice(priceAtoB)} ${tokenB.symbol}`,
         formattedBtoA: `1 ${tokenB.symbol} = ${formatNumericPrice(priceBtoA)} ${tokenA.symbol}`,
+        hasReverse,
+        reversePriceAtoB,
+        reversePriceBtoA,
+        formattedReverseAtoB: reversePriceAtoB ? `1 ${tokenA.symbol} = ${formatNumericPrice(reversePriceAtoB)} ${tokenB.symbol}` : undefined,
+        formattedReverseBtoA: reversePriceBtoA ? `1 ${tokenB.symbol} = ${formatNumericPrice(reversePriceBtoA)} ${tokenA.symbol}` : undefined,
       },
     };
   } else if (pricing.index === 1) {
-    // Oracle Concentrated Liquidity Range
-    const oracleHash = pricing.fields[0] ? String(pricing.fields[0]) : undefined;
-    const r1Num = BigInt(pricing.fields[1].fields[0].fields[0]);
-    const r1Den = BigInt(pricing.fields[1].fields[0].fields[1]);
-    const r2Num = BigInt(pricing.fields[1].fields[1].fields[0]);
-    const r2Den = BigInt(pricing.fields[1].fields[1].fields[1]);
+    // DeltaOracle Dynamic Pricing: Constr 1 [oracle_key: VerificationKey, straight: PriceDelta, reverse: Option<PriceDelta>]
+    // PriceDelta = { offset: Rational, spread: Rational }
+    // Formula: price = oracle_price * (1 + spread) + offset
+    const oracleKey = pricing.fields[0] ? String(pricing.fields[0]) : undefined;
 
-    const rawMin = r1Den > 0n ? Number(r1Num) / Number(r1Den) : 0;
-    const rawMax = r2Den > 0n ? Number(r2Num) / Number(r2Den) : 0;
+    const offsetNum = BigInt(pricing.fields[1].fields[0].fields[0]);
+    const offsetDen = BigInt(pricing.fields[1].fields[0].fields[1]);
+    const straightOffset = offsetDen > 0n ? Number(offsetNum) / Number(offsetDen) : 0;
 
-    // In GY Two-Way Orders, the oracle range ratio is specified as Token B price denominated in Token A
-    const decimalFactor = Math.pow(10, tokenB.decimals - tokenA.decimals);
-    const minPriceBtoA = rawMin * decimalFactor;
-    const maxPriceBtoA = rawMax * decimalFactor;
+    const spreadNum = BigInt(pricing.fields[1].fields[1].fields[0]);
+    const spreadDen = BigInt(pricing.fields[1].fields[1].fields[1]);
+    const straightSpreadRatio = spreadDen > 0n ? Number(spreadNum) / Number(spreadDen) : 0;
+    const straightSpreadPercent = straightSpreadRatio * 100;
 
-    // Inverted bounds for Token A in terms of Token B
-    const minPriceAtoB = maxPriceBtoA > 0 ? 1 / maxPriceBtoA : 0;
-    const maxPriceAtoB = minPriceBtoA > 0 ? 1 / minPriceBtoA : Infinity;
+    let hasReverse = false;
+    let reverseSpreadPercent: number | undefined;
+    let reverseOffset: number | undefined;
+
+    // Check if reverse delta is set (Option Constr 0 = Some)
+    if (pricing.fields[2] && pricing.fields[2].index === 0 && pricing.fields[2].fields?.[0]) {
+      const revDelta = pricing.fields[2].fields[0];
+      const revOffsetNum = BigInt(revDelta.fields[0].fields[0]);
+      const revOffsetDen = BigInt(revDelta.fields[0].fields[1]);
+      reverseOffset = revOffsetDen > 0n ? Number(revOffsetNum) / Number(revOffsetDen) : 0;
+
+      const revSpreadNum = BigInt(revDelta.fields[1].fields[0]);
+      const revSpreadDen = BigInt(revDelta.fields[1].fields[1]);
+      const revSpreadRatio = revSpreadDen > 0n ? Number(revSpreadNum) / Number(revSpreadDen) : 0;
+      reverseSpreadPercent = revSpreadRatio * 100;
+      hasReverse = true;
+    }
+
+    const spreadSign = straightSpreadPercent >= 0 ? "+" : "";
+    const formattedStraight = `Oracle ${spreadSign}${straightSpreadPercent.toFixed(1)}% spread${
+      straightOffset !== 0 ? ` (${straightOffset > 0 ? "+" : ""}${straightOffset})` : ""
+    }`;
+
+    const formattedReverse = hasReverse
+      ? `Oracle ${(reverseSpreadPercent ?? 0) >= 0 ? "+" : ""}${(reverseSpreadPercent ?? 0).toFixed(1)}% spread${
+          (reverseOffset ?? 0) !== 0 ? ` (${(reverseOffset ?? 0) > 0 ? "+" : ""}${reverseOffset})` : ""
+        }`
+      : undefined;
 
     return {
-      pricingType: "oracle_range",
-      oracleRange: {
-        minPriceBtoA,
-        maxPriceBtoA,
-        minPriceAtoB,
-        maxPriceAtoB,
-        formattedRangeBtoA: `${formatNumericPrice(minPriceBtoA)} – ${formatNumericPrice(maxPriceBtoA)} ${tokenA.symbol} / ${tokenB.symbol}`,
-        formattedRangeAtoB: `${formatNumericPrice(minPriceAtoB)} – ${formatNumericPrice(maxPriceAtoB)} ${tokenB.symbol} / ${tokenA.symbol}`,
-        oracleHash,
+      pricingType: "delta_oracle",
+      oracleDelta: {
+        oracleKey,
+        straightSpreadPercent,
+        straightOffset,
+        hasReverse,
+        reverseSpreadPercent,
+        reverseOffset,
+        formattedStraight,
+        formattedReverse,
       },
     };
   }
@@ -352,11 +401,23 @@ export async function fetchAllLiquidityVaults(
       const parsed = Data.from(utxo.datum) as any;
       if (!parsed.fields || parsed.fields.length < 6) continue;
 
-      // Owner PKH
+      // Owner PKH (fields[0]) & Payment Address (fields[1])
       const ownerKey = String(parsed.fields[0]?.fields?.[0]?.[0] || "");
+      const paymentPkh = String(parsed.fields[1]?.fields?.[0]?.fields?.[0] || "");
+      let paymentAddr: string | undefined;
+      try {
+        paymentAddr = decodePlutusAddress(
+          parsed.fields[1],
+          network === "mainnet" ? "Mainnet" : "Preprod"
+        );
+      } catch {
+        // ignore decode failure
+      }
+
       const isUserVault = Boolean(
-        normalizedUserPkhs.has(ownerKey.toLowerCase()) ||
-        (utxo.address && normalizedUserAddrs.has(utxo.address.toLowerCase()))
+        (ownerKey && normalizedUserPkhs.has(ownerKey.toLowerCase())) ||
+        (paymentPkh && normalizedUserPkhs.has(paymentPkh.toLowerCase())) ||
+        (paymentAddr && normalizedUserAddrs.has(paymentAddr.toLowerCase()))
       );
 
       // NFT
@@ -390,7 +451,7 @@ export async function fetchAllLiquidityVaults(
 
       // Pricing
       const pricing = parsed.fields[5];
-      const { pricingType, fixedPrice, oracleRange } = decodePricing(pricing, tokenA, tokenB);
+      const { pricingType, fixedPrice, oracleDelta, oracleRange } = decodePricing(pricing, tokenA, tokenB);
 
       const canonicalPair = getCanonicalPair(tokenA, tokenB);
 
@@ -411,6 +472,7 @@ export async function fetchAllLiquidityVaults(
         formattedAmountB,
         pricingType,
         fixedPrice,
+        oracleDelta,
         oracleRange,
         canonicalPair,
         containedFeeLovelace,

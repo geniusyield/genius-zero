@@ -73,9 +73,11 @@ async function main() {
       console.log(`  Price (A to B): ${v.fixedPrice.formattedAtoB}`);
       console.log(`  Price (B to A): ${v.fixedPrice.formattedBtoA}`);
     }
-    if (v.oracleRange) {
-      console.log(`  Range (B in A): ${v.oracleRange.formattedRangeBtoA}`);
-      console.log(`  Range (A in B): ${v.oracleRange.formattedRangeAtoB}`);
+    if (v.oracleDelta) {
+      console.log(`  Oracle Straight: ${v.oracleDelta.formattedStraight}`);
+      if (v.oracleDelta.hasReverse) {
+        console.log(`  Oracle Reverse:  ${v.oracleDelta.formattedReverse}`);
+      }
     }
   }
 }

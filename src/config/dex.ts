@@ -24,6 +24,23 @@ export interface DexNetworkConstants {
   slvScriptHash: string;
   slvAddr: string;
   slvNftPolicyId: string;
+  slvConfigUTxO?: {
+    txHash: string;
+    outputIndex: number;
+  };
+  slvMintRef?: {
+    txHash: string;
+    outputIndex: number;
+  };
+  slvSpendRef?: {
+    txHash: string;
+    outputIndex: number;
+  };
+  slvCancelRef?: {
+    txHash: string;
+    outputIndex: number;
+  };
+  slvCancelStakeAddr?: string;
   blockfrostUrl: string;
   claimServiceUrl: string;
 }
@@ -53,6 +70,23 @@ export const DEX_CONSTANTS: Record<NetworkType, DexNetworkConstants> = {
     slvScriptHash: "0a32c7d1a45fa861c8a68812919ba3ba187f2da6d84ff684385b2064",
     slvAddr: "addr1wy9r93735306scwg56yp9yvm5wapsled5mvyla5y8pdjqeqndkcvh",
     slvNftPolicyId: "55c9ddbea5ebe40eb41b880a2c047227417c14ec1b8d81ad70afb8be",
+    slvConfigUTxO: {
+      txHash: "2e39463cbaf97a99850fd5bfa9fc54efc9f0bd7f14f3b2c41dc59828bf1851cc",
+      outputIndex: 0,
+    },
+    slvMintRef: {
+      txHash: "2e39463cbaf97a99850fd5bfa9fc54efc9f0bd7f14f3b2c41dc59828bf1851cc",
+      outputIndex: 1,
+    },
+    slvSpendRef: {
+      txHash: "c306121c43bdb35d211ecb18f1e5056a30e394a64e5c45402993a8c9ee306ae1",
+      outputIndex: 0,
+    },
+    slvCancelRef: {
+      txHash: "32a445746126f329c2f97e493ea89096c154ca4532c3707e29e92d65d6aa1602",
+      outputIndex: 0,
+    },
+    slvCancelStakeAddr: "stake17y6fdjcr2v2pm9yccsc7tg022az0qckcn8t0nf4rztuvwncft8wxw",
     blockfrostUrl: "https://cardano-mainnet.blockfrost.io/api/v0",
     claimServiceUrl: "https://2.28.204.8.sslip.io",
   },
@@ -80,6 +114,18 @@ export const DEX_CONSTANTS: Record<NetworkType, DexNetworkConstants> = {
     slvScriptHash: "",
     slvAddr: "",
     slvNftPolicyId: "",
+    slvMintRef: {
+      txHash: "7c6eca2d44783cf7b62ebca5289a44813b2dc967c3e6afe014d2feea43a51e84",
+      outputIndex: 1,
+    },
+    slvSpendRef: {
+      txHash: "e3de5c05d37d4f2d68ff2c86141dafc5bcf387a24005afd5c128828c110d7fc0",
+      outputIndex: 0,
+    },
+    slvCancelRef: {
+      txHash: "82b829abf9a35d632053347bad036df9970f55ff4d6a80358fea433b4c17026b",
+      outputIndex: 0,
+    },
     blockfrostUrl: "https://cardano-preprod.blockfrost.io/api/v0",
     claimServiceUrl: "https://2.28.204.8.sslip.io",
   },
