@@ -101,15 +101,25 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
     }
   }, [lucid, settings.network, wallet.address]);
 
-  // Distinct pairs across all vaults
+  // Distinct canonical pairs across all vaults
   const distinctPairs = useMemo(() => {
     const pairMap = new Map<string, number>();
     for (const v of vaults) {
-      const pairKey = `${v.tokenA.symbol} / ${v.tokenB.symbol}`;
+      const pairKey = v.canonicalPair.pairKey;
       pairMap.set(pairKey, (pairMap.get(pairKey) || 0) + 1);
     }
     return Array.from(pairMap.entries()).sort((a, b) => b[1] - a[1]);
   }, [vaults]);
+
+  // Pricing type counts
+  const oracleRangeCount = useMemo(
+    () => vaults.filter((v) => v.pricingType === "oracle_range").length,
+    [vaults]
+  );
+  const fixedPriceCount = useMemo(
+    () => vaults.filter((v) => v.pricingType === "fixed").length,
+    [vaults]
+  );
 
   // Aggregate TVL & Metrics
   const metrics = useMemo(() => {
@@ -141,8 +151,7 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
 
       // 2. Pair filter
       if (selectedPair !== "ALL") {
-        const pairKey = `${v.tokenA.symbol} / ${v.tokenB.symbol}`;
-        if (pairKey !== selectedPair) return false;
+        if (v.canonicalPair.pairKey !== selectedPair) return false;
       }
 
       // 3. Pricing type filter
@@ -157,9 +166,18 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
         const matchSymbolB = v.tokenB.symbol.toLowerCase().includes(q);
         const matchNameA = v.tokenA.name.toLowerCase().includes(q);
         const matchNameB = v.tokenB.name.toLowerCase().includes(q);
+        const matchPair = v.canonicalPair.pairKey.toLowerCase().includes(q);
         const matchOwner = v.ownerKey.toLowerCase().includes(q);
         const matchTx = v.utxoRef.txHash.toLowerCase().includes(q);
-        if (!matchSymbolA && !matchSymbolB && !matchNameA && !matchNameB && !matchOwner && !matchTx) {
+        if (
+          !matchSymbolA &&
+          !matchSymbolB &&
+          !matchNameA &&
+          !matchNameB &&
+          !matchPair &&
+          !matchOwner &&
+          !matchTx
+        ) {
           return false;
         }
       }
@@ -307,7 +325,7 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
                   : "bg-[#182234] text-slate-400 hover:text-slate-200 border border-transparent"
               }`}
             >
-              All Types
+              All Types ({vaults.length})
             </button>
             <button
               onClick={() => setSelectedPricingType("oracle_range")}
@@ -317,7 +335,7 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
                   : "bg-[#182234] text-slate-400 hover:text-slate-200 border border-transparent"
               }`}
             >
-              Concentrated Range (42)
+              Concentrated Range ({oracleRangeCount})
             </button>
             <button
               onClick={() => setSelectedPricingType("fixed")}
@@ -327,7 +345,7 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
                   : "bg-[#182234] text-slate-400 hover:text-slate-200 border border-transparent"
               }`}
             >
-              Fixed Price (18)
+              Fixed Price ({fixedPriceCount})
             </button>
           </div>
 
@@ -417,6 +435,10 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {paginatedVaults.map((vault) => {
             const utxoId = `${vault.utxoRef.txHash}#${vault.utxoRef.outputIndex}`;
+            const { base, quote, isReversed } = vault.canonicalPair;
+            const baseAmountFormatted = isReversed ? vault.formattedAmountB : vault.formattedAmountA;
+            const quoteAmountFormatted = isReversed ? vault.formattedAmountA : vault.formattedAmountB;
+
             return (
               <div
                 key={utxoId}
@@ -429,40 +451,40 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
                 {/* Card Header: Pair & Badges */}
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2.5">
-                    {/* Token A / B Icons */}
+                    {/* Token Icons: Base then Quote */}
                     <div className="flex -space-x-2 shrink-0">
-                      {vault.tokenA.icon ? (
+                      {base.icon ? (
                         <img
-                          src={vault.tokenA.icon}
-                          alt={vault.tokenA.symbol}
+                          src={base.icon}
+                          alt={base.symbol}
                           className="w-7 h-7 rounded-full border-2 border-[#121824] bg-slate-800 object-cover"
                         />
                       ) : (
                         <div className="w-7 h-7 rounded-full border-2 border-[#121824] bg-purple-600 text-white flex items-center justify-center text-[10px] font-bold">
-                          {vault.tokenA.symbol.slice(0, 3)}
+                          {base.symbol.slice(0, 3)}
                         </div>
                       )}
-                      {vault.tokenB.icon ? (
+                      {quote.icon ? (
                         <img
-                          src={vault.tokenB.icon}
-                          alt={vault.tokenB.symbol}
+                          src={quote.icon}
+                          alt={quote.symbol}
                           className="w-7 h-7 rounded-full border-2 border-[#121824] bg-slate-800 object-cover"
                         />
                       ) : (
                         <div className="w-7 h-7 rounded-full border-2 border-[#121824] bg-sky-600 text-white flex items-center justify-center text-[10px] font-bold">
-                          {vault.tokenB.symbol.slice(0, 3)}
+                          {quote.symbol.slice(0, 3)}
                         </div>
                       )}
                     </div>
 
                     <div>
                       <div className="font-black text-sm text-white flex items-center gap-1.5">
-                        <span>{vault.tokenA.symbol}</span>
+                        <span>{base.symbol}</span>
                         <span className="text-slate-400">/</span>
-                        <span>{vault.tokenB.symbol}</span>
+                        <span>{quote.symbol}</span>
                       </div>
                       <div className="text-[10px] text-slate-400 truncate max-w-[150px]">
-                        {vault.tokenA.name} • {vault.tokenB.name}
+                        {base.name} • {quote.name}
                       </div>
                     </div>
                   </div>
@@ -493,15 +515,15 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="bg-[#121824] p-2 rounded-xl border border-[#1f2d44]/50">
-                      <div className="text-[10px] text-slate-400">{vault.tokenA.symbol}</div>
-                      <div className="font-bold text-slate-100 truncate text-sm" title={vault.formattedAmountA}>
-                        {vault.formattedAmountA}
+                      <div className="text-[10px] text-slate-400">{base.symbol}</div>
+                      <div className="font-bold text-slate-100 truncate text-sm" title={baseAmountFormatted}>
+                        {baseAmountFormatted}
                       </div>
                     </div>
                     <div className="bg-[#121824] p-2 rounded-xl border border-[#1f2d44]/50">
-                      <div className="text-[10px] text-slate-400">{vault.tokenB.symbol}</div>
-                      <div className="font-bold text-slate-100 truncate text-sm" title={vault.formattedAmountB}>
-                        {vault.formattedAmountB}
+                      <div className="text-[10px] text-slate-400">{quote.symbol}</div>
+                      <div className="font-bold text-slate-100 truncate text-sm" title={quoteAmountFormatted}>
+                        {quoteAmountFormatted}
                       </div>
                     </div>
                   </div>
@@ -516,43 +538,72 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
                     </span>
                   </div>
 
-                  {vault.fixedPrice && (
-                    <div className="space-y-1.5 text-xs">
-                      <div className="flex items-center justify-between bg-[#0b0e14] p-2 rounded-xl border border-[#1f2d44]/40">
-                        <span className="text-slate-400 font-medium">1 {vault.tokenA.symbol} =</span>
-                        <span className="font-bold text-white">
-                          {formatNumericPrice(vault.fixedPrice.priceAtoB)} {vault.tokenB.symbol}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between bg-[#0b0e14] p-2 rounded-xl border border-[#1f2d44]/40">
-                        <span className="text-slate-400 font-medium">1 {vault.tokenB.symbol} =</span>
-                        <span className="font-bold text-emerald-400">
-                          {formatNumericPrice(vault.fixedPrice.priceBtoA)} {vault.tokenA.symbol}
-                        </span>
-                      </div>
-                    </div>
-                  )}
+                  {vault.fixedPrice && (() => {
+                    const priceBaseToQuote = isReversed
+                      ? vault.fixedPrice.priceBtoA
+                      : vault.fixedPrice.priceAtoB;
+                    const priceQuoteToBase = isReversed
+                      ? vault.fixedPrice.priceAtoB
+                      : vault.fixedPrice.priceBtoA;
 
-                  {vault.oracleRange && (
-                    <div className="space-y-1.5 text-xs">
-                      <div className="flex flex-col bg-[#0b0e14] p-2 rounded-xl border border-[#1f2d44]/40">
-                        <span className="text-[10px] text-slate-400 font-medium">
-                          Range ({vault.tokenA.symbol} per {vault.tokenB.symbol}):
-                        </span>
-                        <span className="font-bold text-emerald-400 text-xs">
-                          {vault.oracleRange.formattedRangeBtoA}
-                        </span>
+                    return (
+                      <div className="space-y-1.5 text-xs">
+                        <div className="flex items-center justify-between bg-[#0b0e14] p-2 rounded-xl border border-[#1f2d44]/40">
+                          <span className="text-slate-400 font-medium">1 {base.symbol} =</span>
+                          <span className="font-bold text-white">
+                            {formatNumericPrice(priceBaseToQuote)} {quote.symbol}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between bg-[#0b0e14] p-2 rounded-xl border border-[#1f2d44]/40">
+                          <span className="text-slate-400 font-medium">1 {quote.symbol} =</span>
+                          <span className="font-bold text-emerald-400">
+                            {formatNumericPrice(priceQuoteToBase)} {base.symbol}
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex flex-col bg-[#0b0e14] p-2 rounded-xl border border-[#1f2d44]/40">
-                        <span className="text-[10px] text-slate-400 font-medium">
-                          Inverse Range ({vault.tokenB.symbol} per {vault.tokenA.symbol}):
-                        </span>
-                        <span className="font-bold text-sky-400 text-xs">
-                          {vault.oracleRange.formattedRangeAtoB}
-                        </span>
+                    );
+                  })()}
+
+                  {vault.oracleRange && (() => {
+                    // Min/Max Quote per Base
+                    const minQuotePerBase = isReversed
+                      ? vault.oracleRange.minPriceBtoA
+                      : vault.oracleRange.minPriceAtoB;
+                    const maxQuotePerBase = isReversed
+                      ? vault.oracleRange.maxPriceBtoA
+                      : vault.oracleRange.maxPriceAtoB;
+
+                    // Min/Max Base per Quote
+                    const minBasePerQuote = isReversed
+                      ? vault.oracleRange.minPriceAtoB
+                      : vault.oracleRange.minPriceBtoA;
+                    const maxBasePerQuote = isReversed
+                      ? vault.oracleRange.maxPriceAtoB
+                      : vault.oracleRange.maxPriceBtoA;
+
+                    return (
+                      <div className="space-y-1.5 text-xs">
+                        <div className="flex flex-col bg-[#0b0e14] p-2 rounded-xl border border-[#1f2d44]/40">
+                          <span className="text-[10px] text-slate-400 font-medium">
+                            Range ({quote.symbol} per {base.symbol}):
+                          </span>
+                          <span className="font-bold text-emerald-400 text-xs">
+                            {formatNumericPrice(minQuotePerBase)} – {formatNumericPrice(maxQuotePerBase)}{" "}
+                            {quote.symbol} / {base.symbol}
+                          </span>
+                        </div>
+                        <div className="flex flex-col bg-[#0b0e14] p-2 rounded-xl border border-[#1f2d44]/40">
+                          <span className="text-[10px] text-slate-400 font-medium">
+                            Inverse Range ({base.symbol} per {quote.symbol}):
+                          </span>
+                          <span className="font-bold text-sky-400 text-xs">
+                            {formatNumericPrice(minBasePerQuote)} – {formatNumericPrice(maxBasePerQuote)}{" "}
+                            {base.symbol} / {quote.symbol}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </div>
 
                 {/* Footer Metadata */}

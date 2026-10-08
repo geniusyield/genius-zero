@@ -40,14 +40,34 @@ async function main() {
 
   console.log("Fetching liquidity vaults via service...");
   const vaults = await fetchAllLiquidityVaults(lucid, "mainnet");
-  console.log(`Fetched ${vaults.length} vaults!`);
+  console.log(`Fetched ${vaults.length} vaults!\n`);
+
+  console.log("--- RAW PAIRS (Before Normalization) ---");
+  const rawMap = new Map<string, number>();
+  for (const v of vaults) {
+    const raw = `${v.tokenA.symbol} / ${v.tokenB.symbol}`;
+    rawMap.set(raw, (rawMap.get(raw) || 0) + 1);
+  }
+  for (const [pair, count] of Array.from(rawMap.entries()).sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${pair}: ${count}`);
+  }
+
+  console.log("\n--- CANONICAL PAIRS (Normalized) ---");
+  const canMap = new Map<string, number>();
+  for (const v of vaults) {
+    const can = v.canonicalPair.pairKey;
+    canMap.set(can, (canMap.get(can) || 0) + 1);
+  }
+  for (const [pair, count] of Array.from(canMap.entries()).sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${pair}: ${count}`);
+  }
 
   for (let i = 0; i < Math.min(vaults.length, 5); i++) {
     const v = vaults[i];
-    console.log(`\n--- Vault #${i + 1} (${v.tokenA.symbol} / ${v.tokenB.symbol}) ---`);
+    console.log(`\n--- Vault #${i + 1} Canonical: [${v.canonicalPair.pairKey}] (Raw: ${v.tokenA.symbol} / ${v.tokenB.symbol}, reversed: ${v.canonicalPair.isReversed}) ---`);
     console.log(`UTxO: ${v.utxoRef.txHash}#${v.utxoRef.outputIndex}`);
     console.log(`Owner: ${v.ownerKey}`);
-    console.log(`Reserves: ${v.formattedAmountA} ${v.tokenA.symbol} | ${v.formattedAmountB} ${v.tokenB.symbol}`);
+    console.log(`Reserves: ${v.canonicalPair.isReversed ? v.formattedAmountB : v.formattedAmountA} ${v.canonicalPair.base.symbol} | ${v.canonicalPair.isReversed ? v.formattedAmountA : v.formattedAmountB} ${v.canonicalPair.quote.symbol}`);
     console.log(`Type: ${v.pricingType}`);
     if (v.fixedPrice) {
       console.log(`  Price (A to B): ${v.fixedPrice.formattedAtoB}`);

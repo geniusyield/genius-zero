@@ -42,6 +42,7 @@ import {
   AssetClassD,
 } from "../src/contracts/contract.types";
 import { fromAddress, assetClassDFromUnit } from "../src/contracts/utils";
+import { getCanonicalPair } from "../src/services/liquidity";
 
 function loadEnv() {
   const envFiles = [".env.test", ".env.local", ".env"];
@@ -282,6 +283,50 @@ async function main() {
   ]);
   assert.ok(cancelTx, "Cancel orders builder must construct successfully");
   console.log("   ✔ Cancel Order builder constructed successfully!");
+
+  // Test 4: Verifying Canonical Trading Pair Normalization (SLV & DEX)
+  console.log("\n4. Verifying Canonical Trading Pair Normalization (SLV)...");
+  const adaToken = { unit: "lovelace", symbol: "ADA", name: "Cardano ADA", decimals: 6 };
+  const gensToken = {
+    unit: "dda5fdb1002f7389b33e036b6afee82a8189becb6cba852e8b79b4fb47454e53",
+    symbol: "GENS",
+    name: "Genius Yield",
+    decimals: 6,
+  };
+  const snekToken = {
+    unit: "279cbee09c13e77142a9f9132ea9b46f330723ea69b6fb9208b30d7d534e454b",
+    symbol: "SNEK",
+    name: "Snek",
+    decimals: 0,
+  };
+  const usdmToken = {
+    unit: "c48cbb3d5e57ed56e276bc45f99ab39abe94e6cd7ac39fb402da47ad0014df105553444d",
+    symbol: "USDM",
+    name: "Mehen USDM",
+    decimals: 6,
+  };
+
+  // Test ADA vs GENS in both directions
+  const pairAdaGens = getCanonicalPair(adaToken, gensToken);
+  const pairGensAda = getCanonicalPair(gensToken, adaToken);
+  assert.strictEqual(pairAdaGens.pairKey, "GENS / ADA", "ADA/GENS must normalize to GENS / ADA");
+  assert.strictEqual(pairGensAda.pairKey, "GENS / ADA", "GENS/ADA must normalize to GENS / ADA");
+  assert.strictEqual(pairAdaGens.isReversed, true, "ADA/GENS is reversed relative to canonical");
+  assert.strictEqual(pairGensAda.isReversed, false, "GENS/ADA is not reversed relative to canonical");
+
+  // Test ADA vs SNEK in both directions
+  assert.strictEqual(getCanonicalPair(adaToken, snekToken).pairKey, "SNEK / ADA");
+  assert.strictEqual(getCanonicalPair(snekToken, adaToken).pairKey, "SNEK / ADA");
+
+  // Test ADA vs USDM in both directions (ADA is quote asset)
+  assert.strictEqual(getCanonicalPair(adaToken, usdmToken).pairKey, "USDM / ADA");
+  assert.strictEqual(getCanonicalPair(usdmToken, adaToken).pairKey, "USDM / ADA");
+
+  // Test GENS vs USDM in both directions (USDM is quote asset)
+  assert.strictEqual(getCanonicalPair(gensToken, usdmToken).pairKey, "GENS / USDM");
+  assert.strictEqual(getCanonicalPair(usdmToken, gensToken).pairKey, "GENS / USDM");
+
+  console.log("   ✔ All canonical pair invariants verified with 0 duplicate pairs!");
 
   console.log("\n========================================================================");
   console.log("  🎉 ALL CONTRACTS & CONFIGURATION INTEGRITY CHECKS PASSED!             ");

@@ -114,6 +114,13 @@ export interface LiquidityVaultRange {
   oracleHash?: string;
 }
 
+export interface CanonicalPair {
+  base: TokenInfo;
+  quote: TokenInfo;
+  pairKey: string;
+  isReversed: boolean;
+}
+
 export interface LiquidityVault {
   utxoRef: {
     txHash: string;
@@ -133,6 +140,7 @@ export interface LiquidityVault {
   pricingType: VaultPricingType;
   fixedPrice?: LiquidityVaultPrice;
   oracleRange?: LiquidityVaultRange;
+  canonicalPair: CanonicalPair;
   containedFeeLovelace?: bigint;
   rawDatumHex?: string;
 }

@@ -7,6 +7,7 @@ import {
   VaultPricingType,
   LiquidityVaultPrice,
   LiquidityVaultRange,
+  CanonicalPair,
 } from "../types";
 import {
   DEX_CONSTANTS,
@@ -110,6 +111,112 @@ export function formatNumericPrice(price: number): string {
     return price.toFixed(6);
   } else {
     return price.toExponential(4);
+  }
+}
+
+const KNOWN_STABLECOINS = new Set([
+  "USDM",
+  "DJED",
+  "USDC",
+  "USDCX",
+  "USDA",
+  "USDT",
+]);
+
+function isAda(token: TokenInfo): boolean {
+  return token.unit === "lovelace" || token.symbol === "ADA" || token.symbol === "tADA";
+}
+
+function isStable(token: TokenInfo): boolean {
+  return KNOWN_STABLECOINS.has(token.symbol.toUpperCase());
+}
+
+/**
+ * Normalizes a trading pair into a canonical base/quote pair and pairKey
+ * to eliminate inverted duplicates (e.g. ADA/GENS and GENS/ADA).
+ *
+ * Rules:
+ * 1. If one token is ADA/tADA and the other is not, ADA is always the quote asset (e.g. GENS / ADA).
+ * 2. If one token is a known USD stablecoin and the other is not, the stablecoin is the quote asset (e.g. GENS / USDM).
+ * 3. Fallback: alphabetical sort by symbol.
+ */
+export function getCanonicalPair(tokenA: TokenInfo, tokenB: TokenInfo): CanonicalPair {
+  const aIsAda = isAda(tokenA);
+  const bIsAda = isAda(tokenB);
+
+  // 1. One is ADA, other is not
+  if (aIsAda && !bIsAda) {
+    return {
+      base: tokenB,
+      quote: tokenA,
+      pairKey: `${tokenB.symbol} / ${tokenA.symbol}`,
+      isReversed: true,
+    };
+  }
+  if (!aIsAda && bIsAda) {
+    return {
+      base: tokenA,
+      quote: tokenB,
+      pairKey: `${tokenA.symbol} / ${tokenB.symbol}`,
+      isReversed: false,
+    };
+  }
+
+  // 2. Stablecoins (when neither or both is ADA)
+  const aIsStable = isStable(tokenA);
+  const bIsStable = isStable(tokenB);
+
+  if (aIsStable && !bIsStable) {
+    return {
+      base: tokenB,
+      quote: tokenA,
+      pairKey: `${tokenB.symbol} / ${tokenA.symbol}`,
+      isReversed: true,
+    };
+  }
+  if (!aIsStable && bIsStable) {
+    return {
+      base: tokenA,
+      quote: tokenB,
+      pairKey: `${tokenA.symbol} / ${tokenB.symbol}`,
+      isReversed: false,
+    };
+  }
+
+  // 3. Alphabetical fallback
+  const symA = (tokenA.symbol || "").toUpperCase();
+  const symB = (tokenB.symbol || "").toUpperCase();
+  if (symA < symB) {
+    return {
+      base: tokenA,
+      quote: tokenB,
+      pairKey: `${tokenA.symbol} / ${tokenB.symbol}`,
+      isReversed: false,
+    };
+  } else if (symB < symA) {
+    return {
+      base: tokenB,
+      quote: tokenA,
+      pairKey: `${tokenB.symbol} / ${tokenA.symbol}`,
+      isReversed: true,
+    };
+  }
+
+  // Identical symbol fallback: tie-break on unit
+  if (tokenA.unit <= tokenB.unit) {
+    return {
+      base: tokenA,
+      quote: tokenB,
+      pairKey: `${tokenA.symbol} / ${tokenB.symbol}`,
+      isReversed: false,
+    };
+  } else {
+    return {
+      base: tokenB,
+      quote: tokenA,
+      pairKey: `${tokenB.symbol} / ${tokenA.symbol}`,
+      isReversed: true,
+    };
   }
 }
 
@@ -285,6 +392,8 @@ export async function fetchAllLiquidityVaults(
       const pricing = parsed.fields[5];
       const { pricingType, fixedPrice, oracleRange } = decodePricing(pricing, tokenA, tokenB);
 
+      const canonicalPair = getCanonicalPair(tokenA, tokenB);
+
       vaults.push({
         utxoRef: {
           txHash: utxo.txHash,
@@ -303,6 +412,7 @@ export async function fetchAllLiquidityVaults(
         pricingType,
         fixedPrice,
         oracleRange,
+        canonicalPair,
         containedFeeLovelace,
         rawDatumHex: utxo.datum,
       });
