@@ -108,17 +108,26 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
           <span>Offering {tokenA.symbol}</span>
           <span className="text-slate-500 font-normal">→ Want {tokenB.symbol}</span>
         </span>
-        <span className="text-[10px] text-slate-400 font-mono">
+        <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
           Click order to <strong>Get {tokenA.symbol} &amp; Pay {tokenB.symbol}</strong>
         </span>
       </div>
 
       {/* Section 1 Dedicated Column Titles */}
-      <div className="grid grid-cols-4 gap-2 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider border-b border-[#1f2d44]/40 bg-[#090d14]">
-        <div className="text-left text-slate-400">1 {tokenA.symbol} in {tokenB.symbol}</div>
-        <div className="text-right text-slate-400">1 {tokenB.symbol} in {tokenA.symbol}</div>
-        <div className="text-right text-rose-300/90">Available to Get ({tokenA.symbol})</div>
-        <div className="text-right text-slate-400">Cost to Pay ({tokenB.symbol})</div>
+      <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider border-b border-[#1f2d44]/40 bg-[#090d14]">
+        <div className="text-left text-slate-400">
+          <span className="hidden sm:inline">1 {tokenA.symbol} in {tokenB.symbol}</span>
+          <span className="sm:hidden">Price ({tokenB.symbol})</span>
+        </div>
+        <div className="hidden sm:block text-right text-slate-400">1 {tokenB.symbol} in {tokenA.symbol}</div>
+        <div className="text-right text-rose-300/90">
+          <span className="hidden sm:inline">Available to Get ({tokenA.symbol})</span>
+          <span className="sm:hidden">Get ({tokenA.symbol})</span>
+        </div>
+        <div className="text-right text-slate-400">
+          <span className="hidden sm:inline">Cost to Pay ({tokenB.symbol})</span>
+          <span className="sm:hidden">Pay ({tokenB.symbol})</span>
+        </div>
       </div>
 
       {/* Asks (Makers offering Token A) - display highest to lowest so lowest price is adjacent to spread */}
@@ -141,7 +150,7 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
                   onSelectOrder?.(ask);
                   onSelectPrice?.(ask.effectivePrice, ask.availableOffered);
                 }}
-                className={`relative grid grid-cols-4 gap-2 px-3 py-1.5 text-xs font-mono rounded cursor-pointer transition-all group ${
+                className={`relative grid grid-cols-3 sm:grid-cols-4 gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-mono rounded cursor-pointer transition-all group ${
                   isSelected
                     ? "bg-rose-500/25 ring-1 ring-rose-400"
                     : "hover:bg-rose-500/10"
@@ -155,32 +164,32 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
                 />
 
                 {/* Col 1: 1 Token A in Token B */}
-                <div className="relative text-left flex items-center gap-1.5 font-semibold text-rose-400">
+                <div className="relative text-left flex items-center gap-1 font-semibold text-rose-400 truncate">
                   <span>{formatPrice(ask.effectivePrice)}</span>
-                  <span className="text-[10px] text-rose-300/70 font-normal">{tokenB.symbol}</span>
+                  <span className="text-[9px] sm:text-[10px] text-rose-300/70 font-normal">{tokenB.symbol}</span>
                   {isSelected && (
-                    <span className="text-[9px] bg-rose-500/30 text-rose-200 px-1 py-0.5 rounded font-sans font-bold uppercase tracking-wider">
+                    <span className="text-[8px] sm:text-[9px] bg-rose-500/30 text-rose-200 px-1 py-0.5 rounded font-sans font-bold uppercase tracking-wider shrink-0">
                       Fill
                     </span>
                   )}
                 </div>
 
-                {/* Col 2: Reciprocal: 1 Token B in Token A */}
-                <div className="relative text-right my-auto text-slate-400">
+                {/* Col 2: Reciprocal: 1 Token B in Token A (Desktop only) */}
+                <div className="hidden sm:block relative text-right my-auto text-slate-400">
                   <span>{formatPrice(reciprocal)}</span>
                   <span className="text-[10px] text-slate-500 ml-1">{tokenA.symbol}</span>
                 </div>
 
                 {/* Col 3: Available to Get (Token A) */}
-                <div className="relative text-slate-200 text-right my-auto font-medium">
-                  {ask.availableOffered.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                  <span className="text-[10px] text-slate-400 ml-1">{tokenA.symbol}</span>
+                <div className="relative text-slate-200 text-right my-auto font-medium truncate">
+                  {ask.availableOffered.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  <span className="text-[9px] sm:text-[10px] text-slate-400 ml-1">{tokenA.symbol}</span>
                 </div>
 
                 {/* Col 4: Cost to Pay (Token B) */}
-                <div className="relative text-slate-400 text-right my-auto">
-                  {ask.costToPay.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                  <span className="text-[10px] text-slate-500 ml-1">{tokenB.symbol}</span>
+                <div className="relative text-slate-400 text-right my-auto truncate">
+                  {ask.costToPay.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  <span className="text-[9px] sm:text-[10px] text-slate-500 ml-1">{tokenB.symbol}</span>
                 </div>
               </div>
             );
@@ -191,7 +200,7 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
       {/* Center Bar: Rates, Spread & Minswap Comparison */}
       <div className="border-y border-[#1f2d44] bg-[#0b0e14] divide-y divide-[#1f2d44]/60">
         {/* Row 1: Genius Yield Best Offer & Spread */}
-        <div className="px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+        <div className="px-3 sm:px-4 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-xs font-mono">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-slate-400 text-[11px] font-sans font-semibold">GY Best Offer:</span>
             {orderBook.lowestAsk ? (
@@ -199,7 +208,7 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
                 <span className="font-semibold text-rose-300">
                   1 {tokenA.symbol} = {formatPrice(orderBook.lowestAsk)} {tokenB.symbol}
                 </span>
-                <span className="text-slate-500 text-[10px]">
+                <span className="text-slate-500 text-[10px] hidden sm:inline">
                   (1 {tokenB.symbol} = {formatPrice(1 / orderBook.lowestAsk)} {tokenA.symbol})
                 </span>
               </div>
@@ -212,11 +221,11 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
             <span className="font-sans font-semibold">Spread:</span>
             {orderBook.spread !== null ? (
               orderBook.spread < 0 ? (
-                <span className="font-bold text-amber-300 flex items-center gap-1.5 bg-amber-500/15 px-2.5 py-0.5 rounded border border-amber-500/40 animate-pulse">
-                  <span>⚡ Arbitrage Spread:</span>
+                <span className="font-bold text-amber-300 flex items-center gap-1.5 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/40 animate-pulse text-[10px] sm:text-xs">
+                  <span>⚡ Arbitrage:</span>
                   <span>{formatPrice(Math.abs(orderBook.spread))} {tokenB.symbol}</span>
                   {orderBook.spreadPercentage !== null && (
-                    <span className="text-[10px]">({Math.abs(orderBook.spreadPercentage).toFixed(2)}%)</span>
+                    <span className="text-[10px]">({Math.abs(orderBook.spreadPercentage).toFixed(1)}%)</span>
                   )}
                 </span>
               ) : (
@@ -224,7 +233,7 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
                   {formatPrice(orderBook.spread)} {tokenB.symbol}
                   {orderBook.spreadPercentage !== null && (
                     <span className="text-slate-400 text-[10px] ml-1">
-                      ({orderBook.spreadPercentage.toFixed(2)}%)
+                      ({orderBook.spreadPercentage.toFixed(1)}%)
                     </span>
                   )}
                 </span>
@@ -236,14 +245,14 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
         </div>
 
         {/* Row 2: Minswap Reference Rate (In Both Directions) */}
-        <div className="px-4 py-1.5 bg-[#0e1422] flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono">
-          <div className="flex items-center gap-2 flex-wrap">
+        <div className="px-3 sm:px-4 py-1.5 bg-[#0e1422] flex flex-wrap items-center justify-between gap-1.5 text-[11px] font-mono">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
             <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/15 border border-blue-500/30 text-blue-400 font-sans font-bold text-[10px]">
               <ExternalLink className="w-3 h-3" />
-              <span>Minswap Market:</span>
+              <span>Minswap:</span>
             </div>
             {minswapPrice && minswapPrice.available ? (
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap text-[10px] sm:text-[11px]">
                 <span className="text-white font-semibold">
                   1 {tokenA.symbol} = {formatMinswapRate(minswapPrice.priceBaseInQuote)} {tokenB.symbol}
                 </span>
@@ -260,14 +269,14 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
                     const isHigher = diffPercent > 0;
                     return (
                       <span
-                        className={`text-[10px] px-1.5 py-0.5 rounded font-sans font-semibold ${
+                        className={`text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded font-sans font-semibold ${
                           isHigher
                             ? "bg-amber-500/15 text-amber-300 border border-amber-500/30"
                             : "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
                         }`}
                         title={`Genius Yield lowest ask is ${Math.abs(diffPercent).toFixed(1)}% ${isHigher ? "higher" : "lower"} than Minswap`}
                       >
-                        GY Ask {isHigher ? `+${diffPercent.toFixed(1)}%` : `${diffPercent.toFixed(1)}%`} vs Minswap
+                        GY Ask {isHigher ? `+${diffPercent.toFixed(1)}%` : `${diffPercent.toFixed(1)}%`}
                       </span>
                     );
                   })()
@@ -298,17 +307,26 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
           <span>Offering {tokenB.symbol}</span>
           <span className="text-slate-500 font-normal">→ Want {tokenA.symbol}</span>
         </span>
-        <span className="text-[10px] text-slate-400 font-mono">
+        <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
           Click order to <strong>Get {tokenB.symbol} &amp; Pay {tokenA.symbol}</strong>
         </span>
       </div>
 
       {/* Section 2 Dedicated Column Titles */}
-      <div className="grid grid-cols-4 gap-2 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider border-b border-[#1f2d44]/40 bg-[#090d14]">
-        <div className="text-left text-slate-400">1 {tokenA.symbol} in {tokenB.symbol}</div>
-        <div className="text-right text-slate-400">1 {tokenB.symbol} in {tokenA.symbol}</div>
-        <div className="text-right text-emerald-300/90">Available to Get ({tokenB.symbol})</div>
-        <div className="text-right text-slate-400">Cost to Pay ({tokenA.symbol})</div>
+      <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider border-b border-[#1f2d44]/40 bg-[#090d14]">
+        <div className="text-left text-slate-400">
+          <span className="hidden sm:inline">1 {tokenA.symbol} in {tokenB.symbol}</span>
+          <span className="sm:hidden">Price ({tokenB.symbol})</span>
+        </div>
+        <div className="hidden sm:block text-right text-slate-400">1 {tokenB.symbol} in {tokenA.symbol}</div>
+        <div className="text-right text-emerald-300/90">
+          <span className="hidden sm:inline">Available to Get ({tokenB.symbol})</span>
+          <span className="sm:hidden">Get ({tokenB.symbol})</span>
+        </div>
+        <div className="text-right text-slate-400">
+          <span className="hidden sm:inline">Cost to Pay ({tokenA.symbol})</span>
+          <span className="sm:hidden">Pay ({tokenA.symbol})</span>
+        </div>
       </div>
 
       {/* Bids (Makers offering Token B) - display highest to lowest */}
@@ -331,7 +349,7 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
                   onSelectOrder?.(bid);
                   onSelectPrice?.(bid.effectivePrice, bid.availableOffered);
                 }}
-                className={`relative grid grid-cols-4 gap-2 px-3 py-1.5 text-xs font-mono rounded cursor-pointer transition-all group ${
+                className={`relative grid grid-cols-3 sm:grid-cols-4 gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-mono rounded cursor-pointer transition-all group ${
                   isSelected
                     ? "bg-emerald-500/25 ring-1 ring-emerald-400"
                     : "hover:bg-emerald-500/10"
@@ -345,32 +363,32 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
                 />
 
                 {/* Col 1: 1 Token A in Token B */}
-                <div className="relative text-left flex items-center gap-1.5 font-semibold text-emerald-400">
+                <div className="relative text-left flex items-center gap-1 font-semibold text-emerald-400 truncate">
                   <span>{formatPrice(bid.effectivePrice)}</span>
-                  <span className="text-[10px] text-emerald-300/70 font-normal">{tokenB.symbol}</span>
+                  <span className="text-[9px] sm:text-[10px] text-emerald-300/70 font-normal">{tokenB.symbol}</span>
                   {isSelected && (
-                    <span className="text-[9px] bg-emerald-500/30 text-emerald-200 px-1 py-0.5 rounded font-sans font-bold uppercase tracking-wider">
+                    <span className="text-[8px] sm:text-[9px] bg-emerald-500/30 text-emerald-200 px-1 py-0.5 rounded font-sans font-bold uppercase tracking-wider shrink-0">
                       Fill
                     </span>
                   )}
                 </div>
 
-                {/* Col 2: Reciprocal: 1 Token B in Token A */}
-                <div className="relative text-right my-auto text-slate-400">
+                {/* Col 2: Reciprocal: 1 Token B in Token A (Desktop only) */}
+                <div className="hidden sm:block relative text-right my-auto text-slate-400">
                   <span>{formatPrice(reciprocal)}</span>
                   <span className="text-[10px] text-slate-500 ml-1">{tokenA.symbol}</span>
                 </div>
 
                 {/* Col 3: Available to Get (Token B) */}
-                <div className="relative text-slate-200 text-right my-auto font-medium">
-                  {bid.availableOffered.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                  <span className="text-[10px] text-slate-400 ml-1">{tokenB.symbol}</span>
+                <div className="relative text-slate-200 text-right my-auto font-medium truncate">
+                  {bid.availableOffered.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  <span className="text-[9px] sm:text-[10px] text-slate-400 ml-1">{tokenB.symbol}</span>
                 </div>
 
                 {/* Col 4: Cost to Pay (Token A) */}
-                <div className="relative text-slate-400 text-right my-auto">
-                  {bid.costToPay.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                  <span className="text-[10px] text-slate-500 ml-1">{tokenA.symbol}</span>
+                <div className="relative text-slate-400 text-right my-auto truncate">
+                  {bid.costToPay.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  <span className="text-[9px] sm:text-[10px] text-slate-500 ml-1">{tokenA.symbol}</span>
                 </div>
               </div>
             );

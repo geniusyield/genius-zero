@@ -21,6 +21,9 @@ export interface DexNetworkConstants {
   rewardsScriptHash: string;
   gensVaultNftPolicy: string;
   gensxVaultNftPolicy: string;
+  slvScriptHash: string;
+  slvAddr: string;
+  slvNftPolicyId: string;
   blockfrostUrl: string;
   claimServiceUrl: string;
 }
@@ -47,6 +50,9 @@ export const DEX_CONSTANTS: Record<NetworkType, DexNetworkConstants> = {
     rewardsScriptHash: "22774d2bc387c46d5cda4821fb4391580487438628ced94a4f6ce48c",
     gensVaultNftPolicy: "dda5fdb1002f7389b33e036b6afee82a8189becb6cba852e8b79b4fb",
     gensxVaultNftPolicy: "fbae99b8679369079a7f6f0da14a2cf1c2d6bfd3afdf3a96a64ab67a",
+    slvScriptHash: "0a32c7d1a45fa861c8a68812919ba3ba187f2da6d84ff684385b2064",
+    slvAddr: "addr1wy9r93735306scwg56yp9yvm5wapsled5mvyla5y8pdjqeqndkcvh",
+    slvNftPolicyId: "55c9ddbea5ebe40eb41b880a2c047227417c14ec1b8d81ad70afb8be",
     blockfrostUrl: "https://cardano-mainnet.blockfrost.io/api/v0",
     claimServiceUrl: "https://2.28.204.8.sslip.io",
   },
@@ -71,6 +77,9 @@ export const DEX_CONSTANTS: Record<NetworkType, DexNetworkConstants> = {
     rewardsScriptHash: "7665c40357deba19c8bad6d739d805e9287b30c0fa00f1a003dfcfa4",
     gensVaultNftPolicy: "c6e65ba7878b2f8ea0ad39287d3e2fd256dc5c4160fc19bdf4c4d87e",
     gensxVaultNftPolicy: "fbae99b8679369079a7f6f0da14a2cf1c2d6bfd3afdf3a96a64ab67a",
+    slvScriptHash: "",
+    slvAddr: "",
+    slvNftPolicyId: "",
     blockfrostUrl: "https://cardano-preprod.blockfrost.io/api/v0",
     claimServiceUrl: "https://2.28.204.8.sslip.io",
   },
@@ -192,6 +201,35 @@ export const IBTC_MAINNET_TOKEN: TokenInfo = {
   icon: "https://assets.coingecko.com/coins/images/28272/standard/iBTC.png",
 };
 
+export const USDCX_MAINNET_TOKEN: TokenInfo = {
+  unit: "1ecb116ddd0b118b436325054c2e6d2bd803d8f2f801b8793736d5355553444358",
+  policyId: "1ecb116ddd0b118b436325054c2e6d2bd803d8f2f801b8793736d535",
+  assetName: "5553444358",
+  symbol: "USDCX",
+  name: "Wanchain Bridged USDC",
+  decimals: 6,
+  icon: "https://assets.coingecko.com/coins/images/6319/standard/usdc.png",
+};
+
+export const USDC_ANZENS_MAINNET_TOKEN: TokenInfo = {
+  unit: "1f3aec8bfe7ea4fe14c5f121e2a92e301afe414147860d557cac7e345553444378",
+  policyId: "1f3aec8bfe7ea4fe14c5f121e2a92e301afe414147860d557cac7e34",
+  assetName: "5553444378",
+  symbol: "USDCx",
+  name: "Anzens USDCx",
+  decimals: 6,
+  icon: "https://assets.coingecko.com/coins/images/6319/standard/usdc.png",
+};
+
+export const NIGHT_MAINNET_TOKEN: TokenInfo = {
+  unit: "0691b2fecca1ac4f53cb6dfb00b7013e561d1f34403b957cbb5af1fa4e49474854",
+  policyId: "0691b2fecca1ac4f53cb6dfb00b7013e561d1f34403b957cbb5af1fa",
+  assetName: "4e49474854",
+  symbol: "NIGHT",
+  name: "Midnight (NIGHT)",
+  decimals: 6,
+};
+
 export const DEFAULT_MAINNET_TOKENS: TokenInfo[] = [
   ADA_TOKEN,
   GENS_MAINNET_TOKEN,
@@ -204,6 +242,9 @@ export const DEFAULT_MAINNET_TOKENS: TokenInfo[] = [
   NMKR_MAINNET_TOKEN,
   INDY_MAINNET_TOKEN,
   IBTC_MAINNET_TOKEN,
+  USDCX_MAINNET_TOKEN,
+  USDC_ANZENS_MAINNET_TOKEN,
+  NIGHT_MAINNET_TOKEN,
 ];
 
 export const DEFAULT_PREPROD_TOKENS: TokenInfo[] = [

@@ -95,3 +95,46 @@ export interface MinswapPriceInfo {
   error?: string;
 }
 
+export type VaultPricingType = "fixed" | "oracle_range";
+
+export interface LiquidityVaultPrice {
+  priceAtoB: number; // 1 Unit of Token A = X Units of Token B
+  priceBtoA: number; // 1 Unit of Token B = Y Units of Token A
+  formattedAtoB: string;
+  formattedBtoA: string;
+}
+
+export interface LiquidityVaultRange {
+  minPriceBtoA: number;
+  maxPriceBtoA: number;
+  minPriceAtoB: number;
+  maxPriceAtoB: number;
+  formattedRangeBtoA: string; // e.g. "0.0050 – 0.0150 ADA / GENS"
+  formattedRangeAtoB: string; // e.g. "66.67 – 200.00 GENS / ADA"
+  oracleHash?: string;
+}
+
+export interface LiquidityVault {
+  utxoRef: {
+    txHash: string;
+    outputIndex: number;
+  };
+  ownerKey: string;
+  ownerAddress?: string;
+  isUserVault: boolean;
+  nftUnit: string;
+  nftTokenName: string;
+  tokenA: TokenInfo;
+  tokenB: TokenInfo;
+  amountA: bigint;
+  amountB: bigint;
+  formattedAmountA: string;
+  formattedAmountB: string;
+  pricingType: VaultPricingType;
+  fixedPrice?: LiquidityVaultPrice;
+  oracleRange?: LiquidityVaultRange;
+  containedFeeLovelace?: bigint;
+  rawDatumHex?: string;
+}
+
+

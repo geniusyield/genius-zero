@@ -411,13 +411,13 @@ export const StakingView: React.FC<StakingViewProps> = ({
 
         {/* Search & Project Filters */}
         {vaults.length > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-1">
             {/* Project Filter Pills */}
-            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <div className="flex items-center gap-1.5 text-xs overflow-x-auto pb-1 sm:pb-0 flex-nowrap sm:flex-wrap">
               <button
                 type="button"
                 onClick={() => { setProjectFilter("ALL"); setCurrentPage(1); }}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                   projectFilter === "ALL"
                     ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
                     : "bg-[#182234] text-slate-400 border border-[#1f2d44] hover:text-white"
@@ -428,7 +428,7 @@ export const StakingView: React.FC<StakingViewProps> = ({
               <button
                 type="button"
                 onClick={() => { setProjectFilter("GENS"); setCurrentPage(1); }}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                   projectFilter === "GENS"
                     ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
                     : "bg-[#182234] text-slate-400 border border-[#1f2d44] hover:text-white"
@@ -439,7 +439,7 @@ export const StakingView: React.FC<StakingViewProps> = ({
               <button
                 type="button"
                 onClick={() => { setProjectFilter("GENSX"); setCurrentPage(1); }}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                   projectFilter === "GENSX"
                     ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
                     : "bg-[#182234] text-slate-400 border border-[#1f2d44] hover:text-white"
@@ -451,7 +451,7 @@ export const StakingView: React.FC<StakingViewProps> = ({
                 <button
                   type="button"
                   onClick={() => { setProjectFilter("ADA"); setCurrentPage(1); }}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                     projectFilter === "ADA"
                       ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
                       : "bg-[#182234] text-slate-400 border border-[#1f2d44] hover:text-white"
@@ -463,7 +463,7 @@ export const StakingView: React.FC<StakingViewProps> = ({
               <button
                 type="button"
                 onClick={() => { setProjectFilter("MY"); setCurrentPage(1); }}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                   projectFilter === "MY"
                     ? "bg-sky-500/20 text-sky-300 border border-sky-500/40"
                     : "bg-[#182234] text-slate-400 border border-[#1f2d44] hover:text-white"
@@ -474,7 +474,7 @@ export const StakingView: React.FC<StakingViewProps> = ({
             </div>
 
             {/* Search Box */}
-            <div className="relative min-w-[220px]">
+            <div className="relative w-full sm:w-auto sm:min-w-[220px]">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
@@ -519,7 +519,8 @@ export const StakingView: React.FC<StakingViewProps> = ({
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="overflow-x-auto">
+            {/* Desktop Table View (Hidden on Mobile) */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left text-xs font-mono">
                 <thead>
                   <tr className="border-b border-[#1f2d44] text-[10px] text-slate-500 uppercase tracking-wider">
@@ -603,6 +604,100 @@ export const StakingView: React.FC<StakingViewProps> = ({
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile Card List (Hidden on Desktop) */}
+            <div className="md:hidden space-y-3">
+              {paginatedVaults.map((v, idx) => {
+                const refKey = `${v.utxoRef.txHash}#${v.utxoRef.outputIndex}`;
+                const isCurrentUnstaking = unstakingRef === refKey;
+
+                return (
+                  <div
+                    key={`mobile-${refKey}-${idx}`}
+                    className="p-3.5 rounded-xl bg-[#0b0e14] border border-[#1f2d44] space-y-2.5"
+                  >
+                    {/* Top Row: Ownership, Project, Lock Status */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-white text-sm">{v.project}</span>
+                        {v.isUserOwned ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            Your Vault
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400">
+                            Community
+                          </span>
+                        )}
+                      </div>
+
+                      <div>
+                        {v.lockedUntilMs ? (
+                          v.isUnlocked ? (
+                            <span className="inline-flex items-center gap-1 text-emerald-400 text-xs font-mono">
+                              <Unlock className="w-3 h-3" /> Unlocked
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-amber-400 text-xs font-mono" title={`Locked until ${new Date(v.lockedUntilMs).toLocaleString()}`}>
+                              <Lock className="w-3 h-3" /> Locked
+                            </span>
+                          )
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-sky-400 text-xs font-mono">
+                            <Unlock className="w-3 h-3" /> Flexible
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Stats Grid */}
+                    <div className="grid grid-cols-2 gap-2 text-xs font-mono bg-[#121824] p-2.5 rounded-lg border border-[#1a2332]">
+                      <div>
+                        <div className="text-[10px] text-slate-500 uppercase">Staked Principal</div>
+                        <div className="font-bold text-white text-sm">
+                          {formatAmount(v.stakedAmount)} <span className="text-slate-400 text-xs">{v.project}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-slate-500 uppercase">Deposit ADA</div>
+                        <div className="font-semibold text-slate-300">
+                          {(Number(v.depositLovelace) / 1_000_000).toFixed(2)} ADA
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* PKH / Details */}
+                    {v.ownerPkh && (
+                      <div className="text-[10px] font-mono text-slate-500 truncate">
+                        Owner: {v.ownerPkh.slice(0, 14)}...{v.ownerPkh.slice(-8)}
+                      </div>
+                    )}
+
+                    {/* Action button if owned */}
+                    {v.isUserOwned && (
+                      <button
+                        type="button"
+                        onClick={() => handleUnstake(v)}
+                        disabled={isCurrentUnstaking || !v.isUnlocked}
+                        className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-sky-500 hover:bg-sky-600 text-slate-950 font-bold text-xs transition-all shadow-md shadow-sky-500/20 disabled:opacity-50"
+                      >
+                        {isCurrentUnstaking ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Submitting Unstake...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Unlock className="w-3.5 h-3.5" />
+                            <span>Unstake {formatAmount(v.stakedAmount)} {v.project}</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             {/* Pagination Controls */}

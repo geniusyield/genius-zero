@@ -312,8 +312,8 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
 
       {/* Pools & Claim Panel */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Active On-Chain Pools (2 Cols) */}
-        <div className="lg:col-span-2 bg-[#121824] border border-[#1f2d44] rounded-2xl p-5 space-y-4">
+        {/* Active On-Chain Pools (2 Cols on desktop, 2nd on mobile) */}
+        <div className="order-2 lg:order-1 lg:col-span-2 bg-[#121824] border border-[#1f2d44] rounded-2xl p-4 sm:p-5 space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-[#1f2d44]">
             <div>
               <h3 className="font-bold text-sm text-white flex items-center gap-2">
@@ -523,8 +523,8 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
           )}
         </div>
 
-        {/* Claim Action Box (1 Col) */}
-        <div className="bg-[#121824] border border-[#1f2d44] rounded-2xl p-5 flex flex-col justify-between space-y-4">
+        {/* Claim Action Box (1 Col on desktop, 1st on mobile) */}
+        <div className="order-1 lg:order-2 lg:col-span-1 bg-[#121824] border border-[#1f2d44] rounded-2xl p-4 sm:p-5 flex flex-col justify-between space-y-4">
           <div>
             <div className="flex items-center gap-2 pb-3 border-b border-[#1f2d44]">
               <Gift className="w-5 h-5 text-emerald-400" />
