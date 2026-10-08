@@ -692,7 +692,18 @@ export const TradePanel: React.FC<TradePanelProps> = ({
                 {/* Active Selected Order Header */}
                 <div className="p-3 rounded-xl bg-[#0b0e14] border border-[#1f2d44] space-y-2">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400 text-[11px]">Selected On-Chain Order:</span>
+                    {selectedOrder.isVault ? (
+                      <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-[10px] font-bold uppercase tracking-wider">
+                        <span>Smart Liquidity Vault</span>
+                        {selectedOrder.isDynamicOracle && (
+                          <span className="text-[9px] text-cyan-400 font-normal">
+                            ({selectedOrder.vaultDirection === "reverse" ? "Reverse • Oracle" : "Straight • Oracle"})
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 text-[11px]">Selected On-Chain Order:</span>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
@@ -833,9 +844,18 @@ export const TradePanel: React.FC<TradePanelProps> = ({
                     <div className="flex items-center justify-between">
                       <span className="flex items-center gap-1">
                         Protocol Taker Fee:
-                        <span title="Fixed Genius Yield taker fee" className="text-slate-500 cursor-help">ⓘ</span>
+                        <span
+                          title={
+                            selectedOrder.isVault
+                              ? "Smart Liquidity Vault taker fee: 0.90 ADA flat fee (+ 0.3% maker/taker proportional protocol fee)"
+                              : "Fixed Genius Yield taker fee: 1.00 ADA"
+                          }
+                          className="text-slate-500 cursor-help"
+                        >
+                          ⓘ
+                        </span>
                       </span>
-                      <span>1.00 ADA</span>
+                      <span>{(Number(fillDetails.cost.takerFeeLovelace) / 1_000_000).toFixed(2)} ADA</span>
                     </div>
 
                     <div className="flex items-center justify-between">

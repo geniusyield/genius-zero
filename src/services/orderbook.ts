@@ -1,5 +1,13 @@
 import { LucidEvolution, UTxO } from "@lucid-evolution/lucid";
-import { DexOrder, NetworkType, OrderBook, TradingPair, FetchProgress } from "../types";
+import {
+  DexOrder,
+  NetworkType,
+  OrderBook,
+  TradingPair,
+  FetchProgress,
+  RationalPrice,
+  LiquidityVault,
+} from "../types";
 import { DEX_CONSTANTS } from "../config/dex";
 import { myDatumOf } from "../contracts/api";
 import { assetClassDToUnit, toAddress } from "../contracts/utils";
@@ -11,6 +19,9 @@ import {
   saveCachedOrders,
   pruneCachedOrders,
 } from "./cache";
+import { fetchAllLiquidityVaults } from "./liquidity";
+import { toExactRational } from "./oracle";
+import { fetchMinswapPrice } from "./minswap";
 
 /**
  * Fetches all active parsed orders for the network, using the local IndexedDB cache
@@ -157,13 +168,175 @@ export async function fetchAllActiveParsedOrders(
   return [...hits, ...newlyParsed];
 }
 
+/**
+ * Maps a Smart Liquidity Vault leg (straight or reverse) to a DexOrder so it can live seamlessly in the order book.
+ */
+export function mapVaultLegToDexOrder(
+  vault: LiquidityVault,
+  direction: "straight" | "reverse",
+  pair: TradingPair,
+  referenceOraclePrice?: number,
+  userPkhList: string[] = []
+): DexOrder | null {
+  const isAtoB =
+    vault.tokenA.unit === pair.baseToken.unit &&
+    vault.tokenB.unit === pair.quoteToken.unit;
+  const isBtoA =
+    vault.tokenA.unit === pair.quoteToken.unit &&
+    vault.tokenB.unit === pair.baseToken.unit;
+
+  if (!isAtoB && !isBtoA) {
+    return null;
+  }
+
+  const isUserOrder =
+    vault.isUserVault ||
+    (userPkhList.length > 0 &&
+      userPkhList.some(
+        (pkh) => pkh.toLowerCase() === vault.ownerKey.toLowerCase()
+      ));
+
+  let orderType: "bid" | "ask";
+  let offeredAsset: string;
+  let askedAsset: string;
+  let offeredAmount: bigint;
+  let effectivePrice = 0;
+  const isDynamicOracle =
+    vault.pricingType === "delta_oracle" || vault.pricingType === "oracle_range";
+
+  if (isAtoB) {
+    // Vault Token A = Base (e.g. GENS), Vault Token B = Quote (e.g. ADA)
+    if (direction === "straight") {
+      // Straight: offers Token A (Base) to receive Token B (Quote) => ASK
+      if (vault.amountA <= 0n) return null;
+      orderType = "ask";
+      offeredAsset = pair.baseToken.unit;
+      askedAsset = pair.quoteToken.unit;
+      offeredAmount = vault.amountA;
+
+      if (vault.pricingType === "fixed" && vault.fixedPrice) {
+        effectivePrice = vault.fixedPrice.priceAtoB;
+      } else if (isDynamicOracle && referenceOraclePrice && referenceOraclePrice > 0) {
+        const spread = (vault.oracleDelta?.straightSpreadPercent ?? 0) / 100;
+        const offset = vault.oracleDelta?.straightOffset ?? 0;
+        effectivePrice = referenceOraclePrice * (1 + spread) + offset;
+      }
+    } else {
+      // Reverse: offers Token B (Quote) to receive Token A (Base) => BID
+      const hasReverse =
+        vault.pricingType === "fixed"
+          ? !!vault.fixedPrice?.hasReverse
+          : !!vault.oracleDelta?.hasReverse;
+      if (!hasReverse || vault.amountB <= 0n) return null;
+
+      orderType = "bid";
+      offeredAsset = pair.quoteToken.unit;
+      askedAsset = pair.baseToken.unit;
+      offeredAmount = vault.amountB;
+
+      if (vault.pricingType === "fixed" && vault.fixedPrice) {
+        effectivePrice =
+          vault.fixedPrice.reversePriceAtoB ??
+          (vault.fixedPrice.reversePriceBtoA ? 1 / vault.fixedPrice.reversePriceBtoA : 0);
+      } else if (isDynamicOracle && referenceOraclePrice && referenceOraclePrice > 0) {
+        const spread = (vault.oracleDelta?.reverseSpreadPercent ?? 0) / 100;
+        const offset = vault.oracleDelta?.reverseOffset ?? 0;
+        effectivePrice = referenceOraclePrice * (1 - spread) - offset;
+      }
+    }
+  } else {
+    // Vault Token A = Quote (e.g. ADA), Vault Token B = Base (e.g. GENS)
+    if (direction === "straight") {
+      // Straight: offers Token A (Quote) to receive Token B (Base) => BID
+      if (vault.amountA <= 0n) return null;
+      orderType = "bid";
+      offeredAsset = pair.quoteToken.unit;
+      askedAsset = pair.baseToken.unit;
+      offeredAmount = vault.amountA;
+
+      if (vault.pricingType === "fixed" && vault.fixedPrice) {
+        effectivePrice =
+          vault.fixedPrice.priceBtoA ??
+          (vault.fixedPrice.priceAtoB ? 1 / vault.fixedPrice.priceAtoB : 0);
+      } else if (isDynamicOracle && referenceOraclePrice && referenceOraclePrice > 0) {
+        const spread = (vault.oracleDelta?.straightSpreadPercent ?? 0) / 100;
+        const offset = vault.oracleDelta?.straightOffset ?? 0;
+        effectivePrice = referenceOraclePrice * (1 - spread) - offset;
+      }
+    } else {
+      // Reverse: offers Token B (Base) to receive Token A (Quote) => ASK
+      const hasReverse =
+        vault.pricingType === "fixed"
+          ? !!vault.fixedPrice?.hasReverse
+          : !!vault.oracleDelta?.hasReverse;
+      if (!hasReverse || vault.amountB <= 0n) return null;
+
+      orderType = "ask";
+      offeredAsset = pair.baseToken.unit;
+      askedAsset = pair.quoteToken.unit;
+      offeredAmount = vault.amountB;
+
+      if (vault.pricingType === "fixed" && vault.fixedPrice) {
+        effectivePrice =
+          vault.fixedPrice.reversePriceBtoA ??
+          (vault.fixedPrice.reversePriceAtoB ? 1 / vault.fixedPrice.reversePriceAtoB : 0);
+      } else if (isDynamicOracle && referenceOraclePrice && referenceOraclePrice > 0) {
+        const spread = (vault.oracleDelta?.reverseSpreadPercent ?? 0) / 100;
+        const offset = vault.oracleDelta?.reverseOffset ?? 0;
+        effectivePrice = referenceOraclePrice * (1 + spread) + offset;
+      }
+    }
+  }
+
+  if (effectivePrice <= 0 || !isFinite(effectivePrice)) {
+    return null;
+  }
+
+  let rationalPrice: RationalPrice;
+  try {
+    const quoteRatio = orderType === "ask" ? effectivePrice : 1 / effectivePrice;
+    const fromDecimals = orderType === "ask" ? pair.baseToken.decimals : pair.quoteToken.decimals;
+    const toDecimals = orderType === "ask" ? pair.quoteToken.decimals : pair.baseToken.decimals;
+    const decimalFactor = Math.pow(10, toDecimals - fromDecimals);
+    const rawRatio = quoteRatio * decimalFactor;
+    const r = toExactRational(rawRatio > 0 ? rawRatio : 1);
+    rationalPrice = { numerator: r.numerator, denominator: r.denominator };
+  } catch {
+    rationalPrice = { numerator: 1n, denominator: 1n };
+  }
+
+  return {
+    utxoRef: vault.utxoRef,
+    ownerAddress: vault.ownerAddress || "",
+    ownerKey: vault.ownerKey,
+    offeredAsset,
+    offeredAmount,
+    offeredOriginalAmount: offeredAmount,
+    askedAsset,
+    price: rationalPrice,
+    effectivePrice,
+    orderType,
+    nftUnit: vault.nftUnit,
+    depositLovelace: vault.containedFeeLovelace || 2_000_000n,
+    partialFills: 0n,
+    isExpired: false,
+    isUserOrder,
+    isVault: true,
+    vaultData: vault,
+    vaultDirection: direction,
+    isDynamicOracle,
+    oracleKey: vault.oracleDelta?.oracleKey,
+  };
+}
+
 export async function fetchAllOrdersForPair(
   lucid: LucidEvolution,
   network: NetworkType,
   pair: TradingPair,
   userPkh?: string | string[],
   onProgress?: (progress: FetchProgress) => void,
-  abortSignal?: { aborted: boolean }
+  abortSignal?: { aborted: boolean },
+  referenceOraclePrice?: number
 ): Promise<OrderBook> {
   const pkhList = Array.isArray(userPkh)
     ? userPkh
@@ -171,12 +344,43 @@ export async function fetchAllOrdersForPair(
     ? [userPkh]
     : [];
 
-  const allOrders = await fetchAllActiveParsedOrders(
-    lucid,
-    network,
-    onProgress,
-    abortSignal
-  );
+  const constants = DEX_CONSTANTS[network];
+
+  // Fetch standard limit orders AND Smart Liquidity Vaults concurrently
+  const [allOrders, allVaults] = await Promise.all([
+    fetchAllActiveParsedOrders(
+      lucid,
+      network,
+      onProgress,
+      abortSignal
+    ),
+    constants.slvScriptHash
+      ? fetchAllLiquidityVaults(
+          lucid,
+          network,
+          [],
+          [],
+          pkhList,
+          undefined
+        ).catch((err) => {
+          console.warn("Failed to fetch liquidity vaults for order book:", err);
+          return [] as LiquidityVault[];
+        })
+      : Promise.resolve([] as LiquidityVault[]),
+  ]);
+
+  // Resolve reference oracle price if not supplied
+  let activeOraclePrice = referenceOraclePrice;
+  if (!activeOraclePrice || activeOraclePrice <= 0) {
+    try {
+      const minswap = await fetchMinswapPrice(pair, network);
+      if (minswap?.available && minswap.priceBaseInQuote > 0) {
+        activeOraclePrice = minswap.priceBaseInQuote;
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   const bids: DexOrder[] = [];
   const asks: DexOrder[] = [];
@@ -249,6 +453,39 @@ export async function fetchAllOrdersForPair(
     }
   }
 
+  // 2. Map Smart Liquidity Vaults into order book (Straight and Reverse legs)
+  for (const vault of allVaults) {
+    const straightOrder = mapVaultLegToDexOrder(
+      vault,
+      "straight",
+      pair,
+      activeOraclePrice,
+      pkhList
+    );
+    if (straightOrder) {
+      if (straightOrder.orderType === "ask") {
+        asks.push(straightOrder);
+      } else {
+        bids.push(straightOrder);
+      }
+    }
+
+    const reverseOrder = mapVaultLegToDexOrder(
+      vault,
+      "reverse",
+      pair,
+      activeOraclePrice,
+      pkhList
+    );
+    if (reverseOrder) {
+      if (reverseOrder.orderType === "ask") {
+        asks.push(reverseOrder);
+      } else {
+        bids.push(reverseOrder);
+      }
+    }
+  }
+
   // Sort asks ascending by price (cheapest sell first)
   asks.sort((a, b) => a.effectivePrice - b.effectivePrice);
 
@@ -283,7 +520,9 @@ export async function fetchUserOrders(
   network: NetworkType,
   userPkh: string | string[],
   onProgress?: (progress: FetchProgress) => void,
-  abortSignal?: { aborted: boolean }
+  abortSignal?: { aborted: boolean },
+  pair?: TradingPair,
+  referenceOraclePrice?: number
 ): Promise<DexOrder[]> {
   const pkhList = Array.isArray(userPkh)
     ? userPkh
@@ -293,12 +532,26 @@ export async function fetchUserOrders(
 
   if (pkhList.length === 0) return [];
 
-  const allOrders = await fetchAllActiveParsedOrders(
-    lucid,
-    network,
-    onProgress,
-    abortSignal
-  );
+  const constants = DEX_CONSTANTS[network];
+
+  const [allOrders, allVaults] = await Promise.all([
+    fetchAllActiveParsedOrders(
+      lucid,
+      network,
+      onProgress,
+      abortSignal
+    ),
+    constants.slvScriptHash
+      ? fetchAllLiquidityVaults(
+          lucid,
+          network,
+          [],
+          [],
+          pkhList,
+          undefined
+        ).catch(() => [] as LiquidityVault[])
+      : Promise.resolve([] as LiquidityVault[]),
+  ]);
 
   const userOrders: DexOrder[] = [];
   const now = Date.now();
@@ -330,6 +583,31 @@ export async function fetchUserOrders(
       isExpired,
       isUserOrder: true,
     });
+  }
+
+  // Include user's own liquidity vaults if matching pair
+  if (pair) {
+    for (const vault of allVaults) {
+      if (!vault.isUserVault && !pkhList.includes(vault.ownerKey)) continue;
+
+      const straight = mapVaultLegToDexOrder(
+        vault,
+        "straight",
+        pair,
+        referenceOraclePrice,
+        pkhList
+      );
+      if (straight) userOrders.push(straight);
+
+      const reverse = mapVaultLegToDexOrder(
+        vault,
+        "reverse",
+        pair,
+        referenceOraclePrice,
+        pkhList
+      );
+      if (reverse) userOrders.push(reverse);
+    }
   }
 
   return userOrders;

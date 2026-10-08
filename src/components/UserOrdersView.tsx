@@ -120,6 +120,14 @@ export const UserOrdersView: React.FC = () => {
                             <ArrowRight className="w-3 h-3 text-slate-500" />
                             <span className="font-bold text-slate-200">{askSym}</span>
                           </div>
+                          {order.isVault && (
+                            <span
+                              className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                              title={`Smart Liquidity Vault (${order.vaultDirection === "reverse" ? "Reverse Leg" : "Straight Leg"})`}
+                            >
+                              SLV
+                            </span>
+                          )}
                           {order.isExpired && (
                             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
                               Expired
@@ -213,6 +221,14 @@ export const UserOrdersView: React.FC = () => {
                         <ArrowRight className="w-3 h-3 text-slate-500" />
                         <span className="font-bold text-slate-200">{askSym}</span>
                       </div>
+                      {order.isVault && (
+                        <span
+                          className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                          title={`Smart Liquidity Vault (${order.vaultDirection === "reverse" ? "Reverse Leg" : "Straight Leg"})`}
+                        >
+                          SLV
+                        </span>
+                      )}
                       {order.isExpired && (
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
                           Expired

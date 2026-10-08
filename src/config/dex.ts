@@ -41,6 +41,11 @@ export interface DexNetworkConstants {
     outputIndex: number;
   };
   slvCancelStakeAddr?: string;
+  slvFillRef?: {
+    txHash: string;
+    outputIndex: number;
+  };
+  slvFillStakeAddr?: string;
   blockfrostUrl: string;
   claimServiceUrl: string;
 }
@@ -87,6 +92,11 @@ export const DEX_CONSTANTS: Record<NetworkType, DexNetworkConstants> = {
       outputIndex: 0,
     },
     slvCancelStakeAddr: "stake17y6fdjcr2v2pm9yccsc7tg022az0qckcn8t0nf4rztuvwncft8wxw",
+    slvFillRef: {
+      txHash: "e5ff09817bb4095ca9f09952b61c230df3f459d467ed2b915412ba864f62fb13",
+      outputIndex: 0,
+    },
+    slvFillStakeAddr: "stake17xr7ev3a8s8j9txyxywkwzqvmn05rtnhzjdq5mg2z33e0tss8g9j6",
     blockfrostUrl: "https://cardano-mainnet.blockfrost.io/api/v0",
     claimServiceUrl: "https://2.28.204.8.sslip.io",
   },
@@ -111,21 +121,31 @@ export const DEX_CONSTANTS: Record<NetworkType, DexNetworkConstants> = {
     rewardsScriptHash: "7665c40357deba19c8bad6d739d805e9287b30c0fa00f1a003dfcfa4",
     gensVaultNftPolicy: "c6e65ba7878b2f8ea0ad39287d3e2fd256dc5c4160fc19bdf4c4d87e",
     gensxVaultNftPolicy: "fbae99b8679369079a7f6f0da14a2cf1c2d6bfd3afdf3a96a64ab67a",
-    slvScriptHash: "",
-    slvAddr: "",
-    slvNftPolicyId: "",
+    slvScriptHash: "88637b612c19121c7d6dbb33b92a75e7ab087c60e4369d49aa1e8f91",
+    slvAddr: "addr_test1wzyxx7mp9sv3y8radkan8wf2whn6kzruvrjrd82f4g0glygrht9vm",
+    slvNftPolicyId: "5655fa82aec147b2f0a481c1d7d262e1bff0cc69f6189e7e7e6d3f96",
+    slvConfigUTxO: {
+      txHash: "e6f7734e1c65da63b4e1185ed57c80c74291bb072c8a1337bd7e5a6a8f0dbc69",
+      outputIndex: 0,
+    },
     slvMintRef: {
-      txHash: "7c6eca2d44783cf7b62ebca5289a44813b2dc967c3e6afe014d2feea43a51e84",
+      txHash: "e6f7734e1c65da63b4e1185ed57c80c74291bb072c8a1337bd7e5a6a8f0dbc69",
       outputIndex: 1,
     },
     slvSpendRef: {
-      txHash: "e3de5c05d37d4f2d68ff2c86141dafc5bcf387a24005afd5c128828c110d7fc0",
+      txHash: "9432d77b5636390d2af241c92bcaec2af910bff034eea73918953a34b50d33e7",
       outputIndex: 0,
     },
     slvCancelRef: {
-      txHash: "82b829abf9a35d632053347bad036df9970f55ff4d6a80358fea433b4c17026b",
+      txHash: "6f0113dfc55a745046fa0701debb1472e01ea6001ad20b94934abea359baaa33",
       outputIndex: 0,
     },
+    slvCancelStakeAddr: "stake_test17qpyeqsj3qeu75sj35arlfhyhur8yv7sehhhphdzr6g9k0cgq6ayc",
+    slvFillRef: {
+      txHash: "62ba0d7454c8cfa8b49ec9bf079eb561a5728ea59e611d91877a403b0d5153fd",
+      outputIndex: 0,
+    },
+    slvFillStakeAddr: "stake_test17prz90m6e90sayan9kungpqms29wtch628xx8cqhynv5jcqf7l554",
     blockfrostUrl: "https://cardano-preprod.blockfrost.io/api/v0",
     claimServiceUrl: "https://2.28.204.8.sslip.io",
   },

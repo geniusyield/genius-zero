@@ -21,12 +21,15 @@ import {
   AlertTriangle,
   X,
   CheckCircle2,
+  PlusCircle,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { DEX_CONSTANTS } from "../config/dex";
 import { LiquidityVault, FetchProgress } from "../types";
 import { fetchAllLiquidityVaults, getVaultAdaReserve, formatNumericPrice } from "../services/liquidity";
 import { cancelLiquidityVault } from "../contracts/slv";
+import { TradeVaultModal } from "./TradeVaultModal";
+import { CreateVaultModal } from "./CreateVaultModal";
 
 interface LiquidityViewProps {
   onOpenWallet: () => void;
@@ -49,6 +52,10 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelTxHash, setCancelTxHash] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
+
+  // Trading & Creation Modal States
+  const [tradingVault, setTradingVault] = useState<LiquidityVault | null>(null);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
   // Filters
   const [viewFilter, setViewFilter] = useState<"ALL" | "MY">("ALL");
@@ -259,6 +266,20 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              if (!wallet.connected) {
+                onOpenWallet();
+              } else {
+                setIsCreateModalOpen(true);
+              }
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white text-xs font-bold transition-all shadow-md shadow-sky-500/20 active:scale-[0.99]"
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span>Create Liquidity Vault</span>
+          </button>
+
           <button
             onClick={loadVaults}
             disabled={loading}
@@ -669,24 +690,41 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
                   </div>
                 </div>
 
-                {/* Cancel Vault Button for Owner */}
-                {vault.isUserVault && (
+                {/* Action Buttons: Trade & Cancel */}
+                <div className="mt-3 flex flex-col gap-2">
                   <button
                     onClick={() => {
                       if (!wallet.connected) {
                         onOpenWallet();
                       } else {
-                        setCancellingVault(vault);
-                        setCancelTxHash(null);
-                        setCancelError(null);
+                        setTradingVault(vault);
                       }
                     }}
-                    className="w-full mt-2 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border border-rose-500/30 transition-all font-semibold text-xs shadow-sm active:scale-[0.99]"
+                    className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 hover:text-white border border-sky-500/40 transition-all font-bold text-xs shadow-sm active:scale-[0.99]"
                   >
-                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-                    <span>Cancel Vault & Reclaim Assets</span>
+                    <ArrowRightLeft className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Trade / Fill Liquidity</span>
                   </button>
-                )}
+
+                  {/* Cancel Vault Button for Owner */}
+                  {vault.isUserVault && (
+                    <button
+                      onClick={() => {
+                        if (!wallet.connected) {
+                          onOpenWallet();
+                        } else {
+                          setCancellingVault(vault);
+                          setCancelTxHash(null);
+                          setCancelError(null);
+                        }
+                      }}
+                      className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border border-rose-500/30 transition-all font-semibold text-xs shadow-sm active:scale-[0.99]"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Cancel Vault & Reclaim Assets</span>
+                    </button>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -903,6 +941,25 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Trade Vault Modal */}
+      <TradeVaultModal
+        vault={tradingVault}
+        isOpen={!!tradingVault}
+        onClose={() => setTradingVault(null)}
+        onSuccess={() => {
+          setTimeout(() => loadVaults(), 3000);
+        }}
+      />
+
+      {/* Create Vault Modal */}
+      <CreateVaultModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSuccess={() => {
+          setTimeout(() => loadVaults(), 3000);
+        }}
+      />
     </div>
   );
 };

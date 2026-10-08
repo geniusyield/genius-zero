@@ -139,13 +139,15 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
         ) : (
           [...asksWithDepth].reverse().map((ask, idx) => {
             const depthPercent = Math.min(100, Math.round((ask.cumulative / maxAskDepth) * 100));
+            const askKey = `${ask.utxoRef.txHash}#${ask.utxoRef.outputIndex}${ask.vaultDirection ? `:${ask.vaultDirection}` : ""}`;
             const isSelected =
-              selectedOrderKey === `${ask.utxoRef.txHash}#${ask.utxoRef.outputIndex}`;
+              selectedOrderKey === askKey ||
+              (!ask.vaultDirection && selectedOrderKey === `${ask.utxoRef.txHash}#${ask.utxoRef.outputIndex}`);
             const reciprocal = ask.effectivePrice > 0 ? 1 / ask.effectivePrice : 0;
 
             return (
               <div
-                key={`ask-${ask.utxoRef.txHash}-${ask.utxoRef.outputIndex}-${idx}`}
+                key={`ask-${ask.utxoRef.txHash}-${ask.utxoRef.outputIndex}-${ask.vaultDirection || "order"}-${idx}`}
                 onClick={() => {
                   onSelectOrder?.(ask);
                   onSelectPrice?.(ask.effectivePrice, ask.availableOffered);
@@ -153,9 +155,11 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
                 className={`relative grid grid-cols-3 sm:grid-cols-4 gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-mono rounded cursor-pointer transition-all group ${
                   isSelected
                     ? "bg-rose-500/25 ring-1 ring-rose-400"
+                    : ask.isVault
+                    ? "hover:bg-cyan-500/10 border-l-2 border-cyan-400/80 bg-cyan-950/10"
                     : "hover:bg-rose-500/10"
                 }`}
-                title={`Click to fill: Get ${ask.availableOffered.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${tokenA.symbol} for ${ask.costToPay.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${tokenB.symbol}\nRate: 1 ${tokenA.symbol} = ${formatPrice(ask.effectivePrice)} ${tokenB.symbol} | 1 ${tokenB.symbol} = ${formatPrice(reciprocal)} ${tokenA.symbol}`}
+                title={`${ask.isVault ? `[Smart Liquidity Vault (SLV)${ask.isDynamicOracle ? " • Dynamic Oracle" : " • Fixed"}]\n` : ""}Click to fill: Get ${ask.availableOffered.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${tokenA.symbol} for ${ask.costToPay.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${tokenB.symbol}\nRate: 1 ${tokenA.symbol} = ${formatPrice(ask.effectivePrice)} ${tokenB.symbol} | 1 ${tokenB.symbol} = ${formatPrice(reciprocal)} ${tokenA.symbol}`}
               >
                 {/* Visual Depth Bar */}
                 <div
@@ -167,6 +171,14 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
                 <div className="relative text-left flex items-center gap-1 font-semibold text-rose-400 truncate">
                   <span>{formatPrice(ask.effectivePrice)}</span>
                   <span className="text-[9px] sm:text-[10px] text-rose-300/70 font-normal">{tokenB.symbol}</span>
+                  {ask.isVault && (
+                    <span
+                      className="text-[8px] sm:text-[9px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 px-1 py-0.2 rounded font-sans font-bold uppercase tracking-wider shrink-0"
+                      title={ask.isDynamicOracle ? "Smart Liquidity Vault (Dynamic Oracle rate)" : "Smart Liquidity Vault (Fixed rate)"}
+                    >
+                      SLV{ask.isDynamicOracle ? " • O" : ""}
+                    </span>
+                  )}
                   {isSelected && (
                     <span className="text-[8px] sm:text-[9px] bg-rose-500/30 text-rose-200 px-1 py-0.5 rounded font-sans font-bold uppercase tracking-wider shrink-0">
                       Fill
@@ -338,13 +350,15 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
         ) : (
           bidsWithDepth.map((bid, idx) => {
             const depthPercent = Math.min(100, Math.round((bid.cumulative / maxBidDepth) * 100));
+            const bidKey = `${bid.utxoRef.txHash}#${bid.utxoRef.outputIndex}${bid.vaultDirection ? `:${bid.vaultDirection}` : ""}`;
             const isSelected =
-              selectedOrderKey === `${bid.utxoRef.txHash}#${bid.utxoRef.outputIndex}`;
+              selectedOrderKey === bidKey ||
+              (!bid.vaultDirection && selectedOrderKey === `${bid.utxoRef.txHash}#${bid.utxoRef.outputIndex}`);
             const reciprocal = bid.effectivePrice > 0 ? 1 / bid.effectivePrice : 0;
 
             return (
               <div
-                key={`bid-${bid.utxoRef.txHash}-${bid.utxoRef.outputIndex}-${idx}`}
+                key={`bid-${bid.utxoRef.txHash}-${bid.utxoRef.outputIndex}-${bid.vaultDirection || "order"}-${idx}`}
                 onClick={() => {
                   onSelectOrder?.(bid);
                   onSelectPrice?.(bid.effectivePrice, bid.availableOffered);
@@ -352,9 +366,11 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
                 className={`relative grid grid-cols-3 sm:grid-cols-4 gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-mono rounded cursor-pointer transition-all group ${
                   isSelected
                     ? "bg-emerald-500/25 ring-1 ring-emerald-400"
+                    : bid.isVault
+                    ? "hover:bg-cyan-500/10 border-l-2 border-cyan-400/80 bg-cyan-950/10"
                     : "hover:bg-emerald-500/10"
                 }`}
-                title={`Click to fill: Get ${bid.availableOffered.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${tokenB.symbol} for ${bid.costToPay.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${tokenA.symbol}\nRate: 1 ${tokenA.symbol} = ${formatPrice(bid.effectivePrice)} ${tokenB.symbol} | 1 ${tokenB.symbol} = ${formatPrice(reciprocal)} ${tokenA.symbol}`}
+                title={`${bid.isVault ? `[Smart Liquidity Vault (SLV)${bid.isDynamicOracle ? " • Dynamic Oracle" : " • Fixed"}]\n` : ""}Click to fill: Get ${bid.availableOffered.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${tokenB.symbol} for ${bid.costToPay.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${tokenA.symbol}\nRate: 1 ${tokenA.symbol} = ${formatPrice(bid.effectivePrice)} ${tokenB.symbol} | 1 ${tokenB.symbol} = ${formatPrice(reciprocal)} ${tokenA.symbol}`}
               >
                 {/* Visual Depth Bar */}
                 <div
@@ -366,6 +382,14 @@ export const OrderBookView: React.FC<OrderBookViewProps> = ({
                 <div className="relative text-left flex items-center gap-1 font-semibold text-emerald-400 truncate">
                   <span>{formatPrice(bid.effectivePrice)}</span>
                   <span className="text-[9px] sm:text-[10px] text-emerald-300/70 font-normal">{tokenB.symbol}</span>
+                  {bid.isVault && (
+                    <span
+                      className="text-[8px] sm:text-[9px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 px-1 py-0.2 rounded font-sans font-bold uppercase tracking-wider shrink-0"
+                      title={bid.isDynamicOracle ? "Smart Liquidity Vault (Dynamic Oracle rate)" : "Smart Liquidity Vault (Fixed rate)"}
+                    >
+                      SLV{bid.isDynamicOracle ? " • O" : ""}
+                    </span>
+                  )}
                   {isSelected && (
                     <span className="text-[8px] sm:text-[9px] bg-emerald-500/30 text-emerald-200 px-1 py-0.5 rounded font-sans font-bold uppercase tracking-wider shrink-0">
                       Fill

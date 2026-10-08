@@ -70,8 +70,12 @@ export function patchProviderEvaluation(lucid: LucidEvolution) {
     let rawRedeemers;
     try {
       rawRedeemers = await originalEvaluateTx(tx, []);
-    } catch {
-      rawRedeemers = await originalEvaluateTx(tx, additionalUTxOs);
+    } catch (errFirst) {
+      try {
+        rawRedeemers = await originalEvaluateTx(tx, additionalUTxOs);
+      } catch {
+        throw errFirst;
+      }
     }
 
     return rawRedeemers.map((r: any) => ({

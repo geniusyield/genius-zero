@@ -125,7 +125,7 @@ function MainContent() {
                   }}
                   selectedOrderKey={
                     selectedOrder
-                      ? `${selectedOrder.utxoRef.txHash}#${selectedOrder.utxoRef.outputIndex}`
+                      ? `${selectedOrder.utxoRef.txHash}#${selectedOrder.utxoRef.outputIndex}${selectedOrder.vaultDirection ? `:${selectedOrder.vaultDirection}` : ""}`
                       : null
                   }
                 />

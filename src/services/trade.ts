@@ -163,6 +163,27 @@ export function calculateFillCost(
 
   const isComplete = actualFill >= order.offeredAmount;
 
+  if (order.isVault && order.vaultData) {
+    // Smart Liquidity Vault fill mechanics:
+    // Maker fee: 0.3% is withheld from offered amount (netFromGross)
+    // Taker flat fee: 0.9 ADA (900_000 lovelace)
+    const makerRatio = { numerator: 997n, denominator: 1000n };
+    const offerNet = (actualFill * makerRatio.numerator) / makerRatio.denominator;
+
+    const num = order.price.numerator;
+    const den = order.price.denominator;
+    const payAmt = den > 0n ? (offerNet * num + den - 1n) / den : 0n;
+
+    return {
+      payAssetUnit: order.askedAsset,
+      payAmount: payAmt,
+      receiveAssetUnit: order.offeredAsset,
+      receiveAmount: actualFill,
+      takerFeeLovelace: 900_000n, // 0.9 ADA flat fee
+      isComplete,
+    };
+  }
+
   // price = (amt * num + den - 1) / den
   const payAmt =
     (actualFill * order.price.numerator + order.price.denominator - 1n) /

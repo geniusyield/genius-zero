@@ -32,6 +32,8 @@ import {
   PlaceOrderParams,
 } from "../services/trade";
 import { fetchMinswapPrice } from "../services/minswap";
+import { fillLiquidityVault, cancelLiquidityVault } from "../contracts/slv";
+import { SignedOracleCertificate } from "../services/oracle";
 
 interface AppContextType {
   settings: AppSettings;
@@ -157,6 +159,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   const [error, setError] = useState<string | null>(null);
 
   const [minswapPrice, setMinswapPrice] = useState<MinswapPriceInfo | null>(null);
+  const minswapPriceRef = useRef<MinswapPriceInfo | null>(null);
+  useEffect(() => {
+    minswapPriceRef.current = minswapPrice;
+  }, [minswapPrice]);
   const [loadingMinswapPrice, setLoadingMinswapPrice] = useState<boolean>(false);
 
   const [lucid, setLucid] = useState<LucidEvolution | null>(null);
@@ -523,13 +529,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
 
     try {
       const userKeys = wallet.pkhs && wallet.pkhs.length > 0 ? wallet.pkhs : wallet.pkh || undefined;
+      const refPrice =
+        minswapPriceRef.current?.available && minswapPriceRef.current.priceBaseInQuote > 0
+          ? minswapPriceRef.current.priceBaseInQuote
+          : undefined;
+
       const book = await fetchAllOrdersForPair(
         lucid,
         settings.network,
         activePair,
         userKeys,
         (p) => setOrderBookProgress(p),
-        orderBookAbortRef.current
+        orderBookAbortRef.current,
+        refPrice
       );
       setOrderBook(book);
 
@@ -539,7 +551,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
           settings.network,
           userKeys,
           (p) => setOrderBookProgress(p),
-          orderBookAbortRef.current
+          orderBookAbortRef.current,
+          activePair,
+          refPrice
         );
         setUserOrders(myOrders);
       } else if (!userKeys) {
@@ -637,10 +651,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     }
 
     setActionPending(true);
-    setActionMessage("Building order cancellation transaction...");
+    setActionMessage(
+      order.isVault
+        ? "Building vault cancellation transaction..."
+        : "Building order cancellation transaction..."
+    );
     try {
-      const { txHash } = await cancelLimitOrder(lucid, order);
-      setActionMessage(`Order cancelled: ${txHash.slice(0, 16)}...`);
+      let txHash: string;
+      if (order.isVault && order.vaultData) {
+        txHash = await cancelLiquidityVault(lucid, order.vaultData);
+        setActionMessage(`Vault cancelled: ${txHash.slice(0, 16)}...`);
+      } else {
+        const res = await cancelLimitOrder(lucid, order);
+        txHash = res.txHash;
+        setActionMessage(`Order cancelled: ${txHash.slice(0, 16)}...`);
+      }
 
       // Optimistically remove cancelled order immediately from order book and user orders
       const orderMatch = (o: DexOrder) =>
@@ -686,13 +711,82 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     }
 
     setActionPending(true);
-    setActionMessage("Building order fill transaction...");
+    setActionMessage(
+      order.isVault
+        ? "Preparing Smart Liquidity Vault fill..."
+        : "Building order fill transaction..."
+    );
+
     try {
-      const { txHash } = await fillDexOrder(lucid, {
-        order,
-        fillAmount,
-      });
-      setActionMessage(`Order filled: ${txHash.slice(0, 16)}...`);
+      let txHash: string;
+
+      if (order.isVault && order.vaultData) {
+        let oracleCert: SignedOracleCertificate | undefined;
+
+        if (order.isDynamicOracle) {
+          setActionMessage("Requesting dual-source oracle certificate from daemon...");
+          const certRes = await fetch("https://2.28.204.8.sslip.io/api/v1/oracle/certificate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              network: settings.network.toLowerCase(),
+              baseAsset: {
+                policyHex: order.vaultData.tokenA.policyId || "",
+                tokenHex: order.vaultData.tokenA.assetName || "",
+              },
+              quoteAsset: {
+                policyHex: order.vaultData.tokenB.policyId || "",
+                tokenHex: order.vaultData.tokenB.assetName || "",
+              },
+              symbol: order.vaultData.tokenA.symbol || "GENS",
+            }),
+          });
+
+          const certData = await certRes.json();
+          if (!certRes.ok || !certData.approved) {
+            throw new Error(
+              certData.rejectionReason ||
+              certData.error ||
+              "Oracle refused certificate (price divergence circuit-breaker or daemon unavailable)."
+            );
+          }
+
+          oracleCert = {
+            network: certData.network,
+            baseAsset: certData.baseAsset,
+            quoteAsset: certData.quoteAsset,
+            price: {
+              numerator: BigInt(certData.price.numerator),
+              denominator: BigInt(certData.price.denominator),
+              approximateRate: certData.price.approximateRate,
+            },
+            timestampMs: BigInt(certData.timestampMs),
+            signatureHex: certData.signatureHex,
+            oraclePubKeyHex: certData.oraclePubKeyHex,
+            cborHex: certData.cborHex || "",
+            quotes: certData.quotes,
+            divergencePercent: certData.divergencePercent,
+          };
+        }
+
+        setActionMessage("Building and signing vault fill transaction...");
+        const fillAmt = fillAmount && fillAmount > 0n ? fillAmount : order.offeredAmount;
+        txHash = await fillLiquidityVault(lucid, {
+          vault: order.vaultData,
+          fillAmount: fillAmt,
+          direction: order.vaultDirection || "straight",
+          oracleCertificate: oracleCert,
+          recipientAddress: wallet.address || undefined,
+        });
+        setActionMessage(`Vault filled: ${txHash.slice(0, 16)}...`);
+      } else {
+        const { txHash: normalHash } = await fillDexOrder(lucid, {
+          order,
+          fillAmount,
+        });
+        txHash = normalHash;
+        setActionMessage(`Order filled: ${txHash.slice(0, 16)}...`);
+      }
 
       const orderMatch = (o: DexOrder) =>
         o.utxoRef.txHash === order.utxoRef.txHash &&
@@ -700,8 +794,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
 
       const isCompleteFill = !fillAmount || fillAmount >= order.offeredAmount;
 
-      if (isCompleteFill) {
-        // Optimistically remove completely filled order immediately
+      if (isCompleteFill || order.isVault) {
+        // Optimistically remove completely filled order or spent vault UTxO immediately
         setOrderBook((prev) => ({
           ...prev,
           bids: prev.bids.filter((b) => !orderMatch(b)),

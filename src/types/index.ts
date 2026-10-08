@@ -42,6 +42,11 @@ export interface DexOrder {
   end?: bigint | null;
   isExpired?: boolean;
   isUserOrder?: boolean;
+  isVault?: boolean;
+  vaultData?: LiquidityVault;
+  vaultDirection?: "straight" | "reverse";
+  isDynamicOracle?: boolean;
+  oracleKey?: string;
 }
 
 export interface OrderBook {
