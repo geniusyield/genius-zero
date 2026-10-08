@@ -13,6 +13,7 @@ import {
 } from "@lucid-evolution/lucid";
 import { DEX_CONSTANTS } from "../src/config/dex";
 import { fetchSlvRefUTxOs, decodePlutusAddress } from "../src/contracts/slv";
+import { patchProviderEvaluation } from "../src/services/lucid";
 
 function loadEnv() {
   const envFiles = [".env.test", ".env.local", ".env"];
@@ -41,11 +42,29 @@ async function run() {
 
   try {
     console.log("=== SLV Cancellation Simulation Test ===");
-  console.log("Connecting to Cardano Mainnet via Blockfrost...");
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url: any, opts: any) => {
+    if (String(url).includes("evaluate")) {
+      console.log("\n>>> FETCH EVALUATE URL:", url);
+      const parsedBody = JSON.parse(opts.body);
+      console.log(">>> CBOR length:", parsedBody.cbor?.length);
+      console.log(">>> additionalUtxoSet count:", parsedBody.additionalUtxoSet?.length);
+      fs.writeFileSync("/tmp/eval-body.json", JSON.stringify(parsedBody, null, 2));
+    }
+    const resp = await origFetch(url, opts);
+    if (String(url).includes("evaluate")) {
+      const cloned = resp.clone();
+      console.log(">>> RESPONSE STATUS:", resp.status);
+      console.log(">>> RESPONSE BODY:", await cloned.text());
+    }
+    return resp;
+  };
+
   const lucid = await Lucid(
     new Blockfrost("https://cardano-mainnet.blockfrost.io/api/v0", key),
     "Mainnet"
   );
+  patchProviderEvaluation(lucid);
 
   const constants = DEX_CONSTANTS.mainnet;
 

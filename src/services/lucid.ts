@@ -46,10 +46,41 @@ export async function getLucid(
   const provider = new Blockfrost(endpoint, apiKey);
 
   lucidInstance = await Lucid(provider, lucidNetwork);
+  patchProviderEvaluation(lucidInstance);
   currentApiKey = apiKey;
   currentNetwork = network;
 
   return lucidInstance;
+}
+
+/**
+ * Monkey-patches provider.evaluateTx to fix two known upstream bugs in @lucid-evolution with Blockfrost/Ogmios:
+ * 1. Ogmios fails when additionalUtxoSet contains on-chain multi-assets ("failed to decode payload from base64 or base16")
+ *    or fails with AdditionalUtxoOverlap. Since transactions on confirmed inputs don't need additionalUtxoSet,
+ *    we evaluate with [] first.
+ * 2. Ogmios returns redeemer pointers as "withdrawal:0", which @lucid-evolution/provider exposes as
+ *    redeemer_tag: "withdrawal", but @lucid-evolution/utils toCMLRedeemerTag only handles "withdraw".
+ */
+export function patchProviderEvaluation(lucid: LucidEvolution) {
+  const provider = lucid.config().provider as any;
+  if (!provider || provider._evaluationPatched) return;
+
+  const originalEvaluateTx = provider.evaluateTx.bind(provider);
+  provider.evaluateTx = async (tx: string, additionalUTxOs?: any[]) => {
+    let rawRedeemers;
+    try {
+      rawRedeemers = await originalEvaluateTx(tx, []);
+    } catch {
+      rawRedeemers = await originalEvaluateTx(tx, additionalUTxOs);
+    }
+
+    return rawRedeemers.map((r: any) => ({
+      ...r,
+      redeemer_tag: r.redeemer_tag === "withdrawal" ? "withdraw" : r.redeemer_tag,
+    }));
+  };
+
+  provider._evaluationPatched = true;
 }
 
 export function resetLucid() {

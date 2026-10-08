@@ -11,6 +11,7 @@ import {
 } from "@lucid-evolution/lucid";
 import { LiquidityVault, NetworkType } from "../types";
 import { DEX_CONSTANTS, DexNetworkConstants } from "../config/dex";
+import { patchProviderEvaluation } from "../services/lucid";
 
 /**
  * Decodes a Plutus-encoded Address into a Bech32 Cardano address.
@@ -163,6 +164,7 @@ export async function cancelLiquidityVault(
   lucid: LucidEvolution,
   vault: LiquidityVault
 ): Promise<string> {
+  patchProviderEvaluation(lucid);
   const network = lucid.config().network.toLowerCase() as NetworkType;
   const constants = DEX_CONSTANTS[network];
   if (!constants || !constants.slvNftPolicyId) {
@@ -270,6 +272,7 @@ export async function cancelLiquidityVaults(
   }
 
   const network = lucid.config().network.toLowerCase() as NetworkType;
+  patchProviderEvaluation(lucid);
   const constants = DEX_CONSTANTS[network];
   if (!constants || !constants.slvNftPolicyId) {
     throw new Error(`SLV cancellation is not supported on network: ${network}`);
