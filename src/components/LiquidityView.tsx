@@ -25,9 +25,10 @@ import {
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { DEX_CONSTANTS } from "../config/dex";
-import { LiquidityVault, FetchProgress } from "../types";
+import { LiquidityVault, FetchProgress, TokenInfo } from "../types";
 import { fetchAllLiquidityVaults, getVaultAdaReserve, formatNumericPrice } from "../services/liquidity";
 import { cancelLiquidityVault } from "../contracts/slv";
+import { calculateVaultOraclePrices, fetchLiveOraclePrice } from "../services/oracle";
 import { TradeVaultModal } from "./TradeVaultModal";
 import { CreateVaultModal } from "./CreateVaultModal";
 
@@ -62,6 +63,7 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
   const [selectedPair, setSelectedPair] = useState<string>("ALL");
   const [selectedPricingType, setSelectedPricingType] = useState<"ALL" | "fixed" | "delta_oracle" | "oracle_range">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
+  const [oraclePrices, setOraclePrices] = useState<Record<string, { price: number; timestamp: number }>>({});
 
   const handleConfirmCancel = async () => {
     if (!lucid || !cancellingVault) return;
@@ -141,6 +143,52 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
       loadVaults();
     }
   }, [lucid, settings.network, wallet.address]);
+
+  // Fetch and refresh live oracle prices for pairs present in active oracle vaults
+  useEffect(() => {
+    const oracleVaults = vaults.filter(
+      (v) => v.pricingType === "delta_oracle" || v.pricingType === "oracle_range"
+    );
+    if (oracleVaults.length === 0) return;
+
+    const pairsToFetch = new Map<string, { base: TokenInfo; quote: TokenInfo }>();
+    for (const v of oracleVaults) {
+      if (!pairsToFetch.has(v.canonicalPair.pairKey)) {
+        pairsToFetch.set(v.canonicalPair.pairKey, {
+          base: v.canonicalPair.base,
+          quote: v.canonicalPair.quote,
+        });
+      }
+    }
+
+    let isMounted = true;
+    const fetchPrices = async () => {
+      const updates: Record<string, { price: number; timestamp: number }> = {};
+      await Promise.all(
+        Array.from(pairsToFetch.entries()).map(async ([pairKey, { base, quote }]) => {
+          try {
+            const price = await fetchLiveOraclePrice(settings.network, base, quote);
+            if (price && price > 0) {
+              updates[pairKey] = { price, timestamp: Date.now() };
+            }
+          } catch {
+            // ignore
+          }
+        })
+      );
+      if (isMounted && Object.keys(updates).length > 0) {
+        setOraclePrices((prev) => ({ ...prev, ...updates }));
+      }
+    };
+
+    fetchPrices();
+    const intervalId = setInterval(fetchPrices, 30_000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
+  }, [vaults, settings.network]);
 
   // Distinct canonical pairs across all vaults
   const distinctPairs = useMemo(() => {
@@ -629,28 +677,80 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
                     );
                   })()}
 
-                  {vault.oracleDelta && (
-                    <div className="space-y-1.5 text-xs">
-                      <div className="flex items-center justify-between bg-[#0b0e14] p-2 rounded-xl border border-[#1f2d44]/40">
-                        <span className="text-slate-400 font-medium">Straight:</span>
-                        <span className="font-bold text-emerald-400 text-xs">
-                          {vault.oracleDelta.formattedStraight}
-                        </span>
-                      </div>
-                      {vault.oracleDelta.hasReverse && vault.oracleDelta.formattedReverse ? (
-                        <div className="flex items-center justify-between bg-[#0b0e14] p-2 rounded-xl border border-[#1f2d44]/40">
-                          <span className="text-slate-400 font-medium">Reverse Leg:</span>
-                          <span className="font-bold text-sky-400 text-xs">
-                            {vault.oracleDelta.formattedReverse}
+                  {vault.oracleDelta && (() => {
+                    const pairKey = vault.canonicalPair.pairKey;
+                    const liveOracle = oraclePrices[pairKey];
+                    const derived = liveOracle ? calculateVaultOraclePrices(vault, liveOracle.price) : null;
+
+                    return (
+                      <div className="space-y-1.5 text-xs">
+                        {/* Live Oracle Reference Rate */}
+                        <div className="flex items-center justify-between px-1 text-[10px] text-slate-400">
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            Live Oracle:
                           </span>
+                          {liveOracle ? (
+                            <span className="font-mono text-emerald-400 font-semibold">
+                              1 {base.symbol} = {formatNumericPrice(liveOracle.price)} {quote.symbol}
+                            </span>
+                          ) : (
+                            <span className="italic text-slate-500">Fetching live rate...</span>
+                          )}
                         </div>
-                      ) : (
-                        <div className="text-[10px] text-slate-500 italic px-1">
-                          One-way oracle order
-                        </div>
-                      )}
-                    </div>
-                  )}
+
+                        {/* Straight / Primary Price */}
+                        {derived?.priceBaseToQuote ? (
+                          <div className="flex items-center justify-between bg-[#0b0e14] p-2 rounded-xl border border-[#1f2d44]/40">
+                            <div className="flex flex-col">
+                              <span className="text-slate-400 font-medium">1 {base.symbol} =</span>
+                              <span className="text-[9px] text-slate-500">
+                                Straight ({vault.oracleDelta.formattedStraight})
+                              </span>
+                            </div>
+                            <span className="font-bold text-white text-xs font-mono">
+                              {formatNumericPrice(derived.priceBaseToQuote)} {quote.symbol}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between bg-[#0b0e14] p-2 rounded-xl border border-[#1f2d44]/40">
+                            <span className="text-slate-400 font-medium">Straight:</span>
+                            <span className="font-bold text-emerald-400 text-xs">
+                              {vault.oracleDelta.formattedStraight}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Reverse Leg Price */}
+                        {vault.oracleDelta.hasReverse ? (
+                          derived?.priceQuoteToBase ? (
+                            <div className="flex items-center justify-between bg-[#0b0e14] p-2 rounded-xl border border-[#1f2d44]/40">
+                              <div className="flex flex-col">
+                                <span className="text-slate-400 font-medium">1 {quote.symbol} =</span>
+                                <span className="text-[9px] text-slate-500">
+                                  Reverse ({vault.oracleDelta.formattedReverse || "Oracle Price"})
+                                </span>
+                              </div>
+                              <span className="font-bold text-emerald-400 text-xs font-mono">
+                                {formatNumericPrice(derived.priceQuoteToBase)} {base.symbol}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between bg-[#0b0e14] p-2 rounded-xl border border-[#1f2d44]/40">
+                              <span className="text-slate-400 font-medium">Reverse Leg:</span>
+                              <span className="font-bold text-sky-400 text-xs">
+                                {vault.oracleDelta.formattedReverse || "Oracle Price"}
+                              </span>
+                            </div>
+                          )
+                        ) : (
+                          <div className="text-[10px] text-slate-500 italic px-1">
+                            One-way oracle order
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Footer Metadata */}

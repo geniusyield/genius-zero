@@ -16,7 +16,7 @@
  */
 
 import { CML, Constr, Data, fromHex, toHex } from "@lucid-evolution/lucid";
-import { NetworkType } from "../types/index";
+import { NetworkType, TokenInfo, LiquidityVault } from "../types/index";
 
 export interface PriceQuote {
   provider: string;
@@ -422,3 +422,152 @@ export async function fetchDualSourceValidatedPrice(params: {
     divergencePercent: check.divergencePercent,
   };
 }
+
+export interface VaultDerivedOraclePrices {
+  oracleRate: number; // 1 base in quote (benchmark)
+  priceBaseToQuote?: number; // 1 base = X quote (ask/sell rate)
+  priceQuoteToBase?: number; // 1 quote = Y base (bid/buy rate)
+  spreadStraightPct: number;
+  spreadReversePct?: number;
+  hasReverse: boolean;
+}
+
+/**
+ * Calculates current effective prices for an SLV based on live oracle spot rate.
+ */
+export function calculateVaultOraclePrices(
+  vault: LiquidityVault,
+  oraclePrice: number
+): VaultDerivedOraclePrices | null {
+  if (!vault.oracleDelta || oraclePrice <= 0 || !isFinite(oraclePrice)) {
+    return null;
+  }
+
+  const { isReversed } = vault.canonicalPair;
+  const straightSpread = (vault.oracleDelta.straightSpreadPercent ?? 0) / 100;
+  const straightOffset = vault.oracleDelta.straightOffset ?? 0;
+  const hasReverse = !!vault.oracleDelta.hasReverse;
+  const reverseSpread = (vault.oracleDelta.reverseSpreadPercent ?? 0) / 100;
+  const reverseOffset = vault.oracleDelta.reverseOffset ?? 0;
+
+  let priceBaseToQuote: number | undefined;
+  let priceQuoteToBase: number | undefined;
+
+  if (!isReversed) {
+    // Normal orientation: tokenA = Base, tokenB = Quote
+    // Straight = Base -> Quote (Ask)
+    priceBaseToQuote = oraclePrice * (1 + straightSpread) + straightOffset;
+    if (hasReverse) {
+      // Reverse = Quote -> Base (Bid)
+      const bidBaseInQuote = oraclePrice * (1 - reverseSpread) - reverseOffset;
+      if (bidBaseInQuote > 0) {
+        priceQuoteToBase = 1 / bidBaseInQuote;
+      }
+    }
+  } else {
+    // Reversed orientation: tokenA = Quote, tokenB = Base
+    // Straight = Quote -> Base (Bid)
+    const bidBaseInQuote = oraclePrice * (1 - straightSpread) - straightOffset;
+    if (bidBaseInQuote > 0) {
+      priceQuoteToBase = 1 / bidBaseInQuote;
+    }
+    if (hasReverse) {
+      // Reverse = Base -> Quote (Ask)
+      priceBaseToQuote = oraclePrice * (1 + reverseSpread) + reverseOffset;
+    }
+  }
+
+  return {
+    oracleRate: oraclePrice,
+    priceBaseToQuote: priceBaseToQuote && priceBaseToQuote > 0 ? priceBaseToQuote : undefined,
+    priceQuoteToBase: priceQuoteToBase && priceQuoteToBase > 0 ? priceQuoteToBase : undefined,
+    spreadStraightPct: vault.oracleDelta.straightSpreadPercent,
+    spreadReversePct: vault.oracleDelta.reverseSpreadPercent,
+    hasReverse,
+  };
+}
+
+const oraclePriceCache: Map<string, { price: number; timestamp: number }> = new Map();
+
+/**
+ * Fetches the live benchmark oracle price (1 baseToken in quoteToken) using
+ * the oracle microservice daemon with client-side dual-source fallback and 30s cache.
+ */
+export async function fetchLiveOraclePrice(
+  network: NetworkType,
+  baseToken: TokenInfo,
+  quoteToken: TokenInfo
+): Promise<number | null> {
+  if (baseToken.unit === quoteToken.unit) {
+    return 1.0;
+  }
+
+  const cacheKey = `${network}:${baseToken.unit}:${quoteToken.unit}`;
+  const now = Date.now();
+  const cached = oraclePriceCache.get(cacheKey);
+  if (cached && now - cached.timestamp < 30_000) {
+    return cached.price;
+  }
+
+  const getTokenAdaPrice = async (token: TokenInfo): Promise<number | null> => {
+    if (
+      token.unit === "lovelace" ||
+      token.symbol.toUpperCase() === "ADA" ||
+      token.symbol.toUpperCase() === "TADA"
+    ) {
+      return 1.0;
+    }
+
+    // 1. Try the oracle microservice daemon
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const res = await fetch(
+        `https://2.28.204.8.sslip.io/api/v1/oracle/price?network=${network.toLowerCase()}&unit=${token.unit}&symbol=${encodeURIComponent(token.symbol)}`,
+        { signal: controller.signal }
+      );
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.approved && typeof data.meanPrice === "number" && data.meanPrice > 0) {
+          return data.meanPrice;
+        }
+      }
+    } catch {
+      // Fallback below
+    }
+
+    // 2. Fallback to client-side dual-source validation
+    try {
+      const check = await fetchDualSourceValidatedPrice({
+        unit: token.unit,
+        symbol: token.symbol,
+      });
+      if (check.approved && typeof check.rate === "number" && check.rate > 0) {
+        return check.rate;
+      }
+    } catch {
+      // ignore
+    }
+
+    return null;
+  };
+
+  try {
+    const [basePriceInAda, quotePriceInAda] = await Promise.all([
+      getTokenAdaPrice(baseToken),
+      getTokenAdaPrice(quoteToken),
+    ]);
+
+    if (basePriceInAda && quotePriceInAda && basePriceInAda > 0 && quotePriceInAda > 0) {
+      const priceBaseInQuote = basePriceInAda / quotePriceInAda;
+      oraclePriceCache.set(cacheKey, { price: priceBaseInQuote, timestamp: now });
+      return priceBaseInQuote;
+    }
+  } catch (err) {
+    console.warn("[Oracle] Failed to resolve live price:", err);
+  }
+
+  return null;
+}
+
