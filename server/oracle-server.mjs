@@ -212,11 +212,14 @@ async function fetchGeckoTerminalPrice(unit, symbol) {
 function getBlockfrostKey() {
   if (process.env.BLOCKFROST_API_KEY_MAINNET) return process.env.BLOCKFROST_API_KEY_MAINNET;
   if (process.env.BLOCKFROST_KEY) return process.env.BLOCKFROST_KEY;
+  if (process.env.BLOCKFROST_TOKEN) return process.env.BLOCKFROST_TOKEN;
   const cfgPath = "/opt/genius-claim/config/config.json";
   if (fs.existsSync(cfgPath)) {
     try {
       const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
-      return cfg.blockfrostApiKey || cfg.blockfrostKey || null;
+      if (cfg.blockfrostToken) return cfg.blockfrostToken;
+      if (cfg.blockfrostApiKey) return cfg.blockfrostApiKey;
+      if (cfg.blockfrostKey) return cfg.blockfrostKey;
     } catch {}
   }
   return "";
@@ -254,6 +257,50 @@ async function fetchOnChainMinswapPoolPrice(unit) {
               if (Number.isFinite(p) && p > 0) {
                 clearTimeout(timeout);
                 return { provider: "blockfrost-minswap-v2-onchain", price: p, timestamp: Date.now() };
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+    clearTimeout(timeout);
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// 4B. Fetch On-Chain Minswap V1 Pool UTxO via Blockfrost
+async function fetchOnChainMinswapV1PoolPrice(unit) {
+  if (unit === "lovelace" || !unit) {
+    return { provider: "blockfrost-minswap-v1-onchain", price: 1.0, timestamp: Date.now() };
+  }
+  if (!BLOCKFROST_MAINNET_KEY) return null;
+  const candidateUnits = [unit];
+  if (unit.length > 56 && !unit.slice(56).startsWith("0014df10")) {
+    candidateUnits.push(`${unit.slice(0, 56)}0014df10${unit.slice(56)}`);
+  }
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    const poolAddr = "addr1z8snz7c4974vzdpxu65ruphl3zjdvtxw8strf2c2tmqnxz2j2c79gy9l76sdg0xwhd7r0c0kna0tycz4y5s6mlenh8pq0xmsha";
+    for (const u of candidateUnits) {
+      try {
+        const res = await fetch(`https://cardano-mainnet.blockfrost.io/api/v0/addresses/${poolAddr}/utxos/${u}`, {
+          headers: { project_id: BLOCKFROST_MAINNET_KEY },
+          signal: controller.signal,
+        });
+        if (res.ok) {
+          const utxos = await res.json();
+          for (const utxo of utxos) {
+            const hasFactoryNft = utxo.amount.some((a) => a.unit.startsWith("e4214b7cce62ac6fbba385d164df48e157eae5863521b4b67ca71d86") || a.unit === "13aa2accf2e1561723aa26871e071fdf32c867cff7e7d50ad470d62f4d494e53574150");
+            const lovelaceAmt = utxo.amount.find((a) => a.unit === "lovelace")?.quantity;
+            const tokenAmt = utxo.amount.find((a) => a.unit === u)?.quantity;
+            if (hasFactoryNft && lovelaceAmt && tokenAmt && BigInt(lovelaceAmt) > 10_000_000n && BigInt(tokenAmt) > 10_000_000n) {
+              const p = Number(lovelaceAmt) / Number(tokenAmt);
+              if (Number.isFinite(p) && p > 0) {
+                clearTimeout(timeout);
+                return { provider: "blockfrost-minswap-v1-onchain", price: p, timestamp: Date.now() };
               }
             }
           }
@@ -335,15 +382,16 @@ async function getMultiSourceQuotes(queryUnit, querySymbol) {
     return cached.quotes;
   }
 
-  const [minswap, dexscreener, gecko, blockfrost, coingecko] = await Promise.all([
+  const [minswap, dexscreener, gecko, blockfrostV2, blockfrostV1, coingecko] = await Promise.all([
     fetchMinswapPrice(queryUnit),
     fetchDexScreenerPrice(queryUnit),
     fetchGeckoTerminalPrice(queryUnit, querySymbol),
     fetchOnChainMinswapPoolPrice(queryUnit),
+    fetchOnChainMinswapV1PoolPrice(queryUnit),
     fetchCoinGeckoPrice(querySymbol, queryUnit),
   ]);
 
-  const freshQuotes = [minswap, dexscreener, gecko, blockfrost, coingecko].filter(Boolean);
+  const freshQuotes = [minswap, dexscreener, gecko, blockfrostV2, blockfrostV1, coingecko].filter(Boolean);
 
   if (freshQuotes.length >= 2) {
     priceCache.set(cacheKey, { quotes: freshQuotes, timestamp: now });
