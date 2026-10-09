@@ -15,7 +15,8 @@ import { fromHex } from "@lucid-evolution/lucid";
 import { useApp } from "../context/AppContext";
 import { TokenInfo } from "../types";
 import { createLiquidityVault } from "../contracts/slv";
-import { toExactRational } from "../services/oracle";
+import { toExactRational, fetchLiveOraclePrice } from "../services/oracle";
+import { formatNumericPrice } from "../services/liquidity";
 
 interface CreateVaultModalProps {
   isOpen: boolean;
@@ -50,6 +51,10 @@ export const CreateVaultModal: React.FC<CreateVaultModalProps> = ({
   const [spreadPercentInput, setSpreadPercentInput] = useState<string>("1.0");
   const [enableReverseOracle, setEnableReverseOracle] = useState<boolean>(false);
   const [reverseSpreadPercentInput, setReverseSpreadPercentInput] = useState<string>("1.0");
+
+  // Live Oracle Reference Price
+  const [liveOraclePrice, setLiveOraclePrice] = useState<number | null>(null);
+  const [liveOracleLoading, setLiveOracleLoading] = useState<boolean>(false);
 
   // Submission state
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -95,6 +100,32 @@ export const CreateVaultModal: React.FC<CreateVaultModalProps> = ({
 
   const tokenA = getTokenInfo(selectedTokenAUnit);
   const tokenB = getTokenInfo(selectedTokenBUnit);
+
+  // Fetch live benchmark price for the selected pair
+  React.useEffect(() => {
+    if (!tokenA || !tokenB || tokenA.unit === tokenB.unit) {
+      setLiveOraclePrice(null);
+      return;
+    }
+    let isCancelled = false;
+    setLiveOracleLoading(true);
+    fetchLiveOraclePrice(settings.network, tokenA, tokenB)
+      .then((price) => {
+        if (!isCancelled) {
+          setLiveOraclePrice(price);
+          setLiveOracleLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setLiveOraclePrice(null);
+          setLiveOracleLoading(false);
+        }
+      });
+    return () => {
+      isCancelled = true;
+    };
+  }, [tokenA.unit, tokenB.unit, settings.network]);
 
   // Validate inputs
   const parsedAmountA = parseFloat(amountAInput);
@@ -329,10 +360,26 @@ export const CreateVaultModal: React.FC<CreateVaultModalProps> = ({
           {/* Fixed Price Settings */}
           {pricingType === "fixed" && (
             <div className="p-3.5 rounded-2xl bg-[#0b0e14] border border-[#1f2d44] space-y-3">
-              <div className="space-y-1">
-                <label className="text-xs text-slate-400">
-                  Straight Price ({tokenB.symbol} per {tokenA.symbol})
-                </label>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs text-slate-400">
+                    Straight Price ({tokenB.symbol} per {tokenA.symbol})
+                  </label>
+                  {liveOraclePrice && liveOraclePrice > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFixedPriceInput(liveOraclePrice.toString());
+                        if (enableReverseFixed) {
+                          setReversePriceInput((1 / liveOraclePrice).toString());
+                        }
+                      }}
+                      className="text-[10px] text-sky-400 hover:text-sky-300 font-semibold underline underline-offset-2"
+                    >
+                      Use Market Price ({formatNumericPrice(liveOraclePrice)})
+                    </button>
+                  )}
+                </div>
                 <input
                   type="number"
                   step="any"
@@ -340,6 +387,22 @@ export const CreateVaultModal: React.FC<CreateVaultModalProps> = ({
                   onChange={(e) => setFixedPriceInput(e.target.value)}
                   className="w-full bg-[#121824] border border-[#1f2d44] rounded-xl px-3 py-2 text-xs text-white font-mono outline-none"
                 />
+                {parsedFixedPrice > 0 && (
+                  <div className="p-2 rounded-xl bg-[#121824] border border-[#1f2d44] text-[11px] space-y-0.5">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Straight:</span>
+                      <span className="font-mono text-sky-400 font-semibold">
+                        1 {tokenA.symbol} = {formatNumericPrice(parsedFixedPrice)} {tokenB.symbol}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Reciprocal:</span>
+                      <span className="font-mono text-slate-400">
+                        1 {tokenB.symbol} = {formatNumericPrice(1 / parsedFixedPrice)} {tokenA.symbol}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2 pt-2 border-t border-[#1a2333]">
@@ -354,10 +417,21 @@ export const CreateVaultModal: React.FC<CreateVaultModalProps> = ({
                 </label>
 
                 {enableReverseFixed && (
-                  <div className="space-y-1 pl-5">
-                    <label className="text-[11px] text-slate-400">
-                      Reverse Price ({tokenA.symbol} per {tokenB.symbol})
-                    </label>
+                  <div className="space-y-1.5 pl-5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] text-slate-400">
+                        Reverse Price ({tokenA.symbol} per {tokenB.symbol})
+                      </label>
+                      {parsedFixedPrice > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setReversePriceInput((1 / parsedFixedPrice).toString())}
+                          className="text-[10px] text-emerald-400 hover:text-emerald-300 font-semibold underline underline-offset-2"
+                        >
+                          Reciprocal ({formatNumericPrice(1 / parsedFixedPrice)})
+                        </button>
+                      )}
+                    </div>
                     <input
                       type="number"
                       step="any"
@@ -365,6 +439,22 @@ export const CreateVaultModal: React.FC<CreateVaultModalProps> = ({
                       onChange={(e) => setReversePriceInput(e.target.value)}
                       className="w-full bg-[#121824] border border-[#1f2d44] rounded-xl px-3 py-2 text-xs text-white font-mono outline-none"
                     />
+                    {parsedReversePrice > 0 && (
+                      <div className="p-2 rounded-xl bg-[#121824] border border-[#1f2d44] text-[11px] space-y-0.5">
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Reverse:</span>
+                          <span className="font-mono text-emerald-400 font-semibold">
+                            1 {tokenB.symbol} = {formatNumericPrice(parsedReversePrice)} {tokenA.symbol}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Reciprocal:</span>
+                          <span className="font-mono text-slate-400">
+                            1 {tokenA.symbol} = {formatNumericPrice(1 / parsedReversePrice)} {tokenB.symbol}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -374,16 +464,25 @@ export const CreateVaultModal: React.FC<CreateVaultModalProps> = ({
           {/* Dynamic Oracle Settings */}
           {pricingType === "oracle" && (
             <div className="p-3.5 rounded-2xl bg-[#0b0e14] border border-[#1f2d44] space-y-3">
-              <div className="flex items-center gap-2 text-xs text-emerald-400 font-semibold">
-                <ShieldCheck className="w-4 h-4 shrink-0" />
-                <span>Dual-Source Oracle Service</span>
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 text-emerald-400 font-semibold">
+                  <ShieldCheck className="w-4 h-4 shrink-0" />
+                  <span>Dual-Source Oracle Service</span>
+                </div>
+                {liveOraclePrice ? (
+                  <span className="font-mono text-sky-400 text-[11px]">
+                    1 {tokenA.symbol} = {formatNumericPrice(liveOraclePrice)} {tokenB.symbol}
+                  </span>
+                ) : liveOracleLoading ? (
+                  <span className="text-slate-500 text-[10px] animate-pulse">Fetching rate...</span>
+                ) : null}
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                Trades execute dynamically against real-time market rates verified across Minswap and WingRiders / GeckoTerminal with automated 5% divergence circuit breaker.
+                Trades execute dynamically against real-time market rates verified across Minswap and GeckoTerminal with automated 10% divergence circuit breaker.
               </p>
 
-              <div className="space-y-1">
-                <label className="text-xs text-slate-400">Spread Percentage (+%)</label>
+              <div className="space-y-1.5">
+                <label className="text-xs text-slate-400">Straight Spread Percentage (+%)</label>
                 <input
                   type="number"
                   step="any"
@@ -392,6 +491,14 @@ export const CreateVaultModal: React.FC<CreateVaultModalProps> = ({
                   placeholder="e.g. 1.0%"
                   className="w-full bg-[#121824] border border-[#1f2d44] rounded-xl px-3 py-2 text-xs text-white font-mono outline-none"
                 />
+                {liveOraclePrice && !isNaN(parsedSpread) && (
+                  <div className="p-2 rounded-xl bg-[#121824] border border-[#1f2d44] text-[11px] flex justify-between">
+                    <span className="text-slate-400">Straight Effective Rate:</span>
+                    <span className="font-mono text-sky-400 font-semibold">
+                      1 {tokenA.symbol} = {formatNumericPrice(liveOraclePrice * (1 + parsedSpread / 100))} {tokenB.symbol}
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2 pt-2 border-t border-[#1a2333]">
@@ -406,7 +513,7 @@ export const CreateVaultModal: React.FC<CreateVaultModalProps> = ({
                 </label>
 
                 {enableReverseOracle && (
-                  <div className="space-y-1 pl-5">
+                  <div className="space-y-1.5 pl-5">
                     <label className="text-[11px] text-slate-400">Reverse Spread (+%)</label>
                     <input
                       type="number"
@@ -416,6 +523,14 @@ export const CreateVaultModal: React.FC<CreateVaultModalProps> = ({
                       placeholder="e.g. 1.0%"
                       className="w-full bg-[#121824] border border-[#1f2d44] rounded-xl px-3 py-2 text-xs text-white font-mono outline-none"
                     />
+                    {liveOraclePrice && !isNaN(parsedReverseSpread) && (
+                      <div className="p-2 rounded-xl bg-[#121824] border border-[#1f2d44] text-[11px] flex justify-between">
+                        <span className="text-slate-400">Reverse Effective Rate:</span>
+                        <span className="font-mono text-emerald-400 font-semibold">
+                          1 {tokenB.symbol} = {formatNumericPrice((1 / liveOraclePrice) * (1 + parsedReverseSpread / 100))} {tokenA.symbol}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -369,10 +369,28 @@ export async function fetchAllOrdersForPair(
       : Promise.resolve([] as LiquidityVault[]),
   ]);
 
-  // Resolve reference oracle price if not supplied
+  // Resolve reference oracle price if not supplied (enables dynamic DeltaOracle vaults in order book)
   let activeOraclePrice = referenceOraclePrice;
   if (!activeOraclePrice || activeOraclePrice <= 0) {
     try {
+      // 1. Try dual-source oracle daemon (supports testnet mapping & circuit-breaker)
+      const oracleRes = await fetch(
+        `https://2.28.204.8.sslip.io/api/v1/oracle/price?network=${network}&unit=${pair.baseToken.unit}&symbol=${pair.baseToken.symbol}&maxDivergenceRatio=0.15`
+      );
+      if (oracleRes.ok) {
+        const oData = await oracleRes.json();
+        if (oData.approved && oData.meanPrice > 0) {
+          activeOraclePrice = oData.meanPrice;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!activeOraclePrice || activeOraclePrice <= 0) {
+    try {
+      // 2. Direct Minswap query (Mainnet)
       const minswap = await fetchMinswapPrice(pair, network);
       if (minswap?.available && minswap.priceBaseInQuote > 0) {
         activeOraclePrice = minswap.priceBaseInQuote;

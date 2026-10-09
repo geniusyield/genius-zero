@@ -294,6 +294,15 @@ function signCertificate(sk, cborHex) {
   return toHex(sig.to_raw_bytes());
 }
 
+function resolveDecimals(unit, symbol, explicitDecimals) {
+  if (typeof explicitDecimals === "number" && explicitDecimals >= 0) return explicitDecimals;
+  const sym = (symbol || "").toUpperCase();
+  if (!unit || unit === "" || unit === "lovelace" || sym === "ADA" || sym === "TADA") return 6;
+  if (sym === "GENS" || sym === "TGENS") return 6;
+  if (sym === "TST") return 0;
+  return 6;
+}
+
 // HTTP Server
 const server = http.createServer(async (req, res) => {
   // CORS
@@ -334,7 +343,8 @@ const server = http.createServer(async (req, res) => {
       const network = parsedUrl.searchParams.get("network") || "mainnet";
       const unit = parsedUrl.searchParams.get("unit") || "";
       const symbol = parsedUrl.searchParams.get("symbol") || "GENS";
-      const maxDiv = parseFloat(parsedUrl.searchParams.get("maxDivergence") || "0.05");
+      const maxDivParam = parsedUrl.searchParams.get("maxDivergenceRatio") || parsedUrl.searchParams.get("maxDivergence");
+      const maxDiv = maxDivParam ? parseFloat(maxDivParam) : 0.10;
 
       let queryUnit = unit;
       let querySymbol = symbol;
@@ -373,8 +383,13 @@ const server = http.createServer(async (req, res) => {
         const quotePolicyHex = payload.quoteAsset?.policyHex || "";
         const quoteTokenHex = payload.quoteAsset?.tokenHex || "";
         const baseUnit = basePolicyHex ? `${basePolicyHex}${baseTokenHex}` : "lovelace";
-        const symbol = payload.symbol || "GENS";
-        const maxDiv = payload.maxDivergenceRatio ?? 0.05;
+        const quoteUnit = quotePolicyHex ? `${quotePolicyHex}${quoteTokenHex}` : "lovelace";
+        const isBaseAda = !basePolicyHex || basePolicyHex === "" || basePolicyHex === "lovelace";
+        const isQuoteAda = !quotePolicyHex || quotePolicyHex === "" || quotePolicyHex === "lovelace";
+
+        const baseSymbol = payload.baseAsset?.symbol || (isBaseAda ? "ADA" : (payload.symbol || "GENS"));
+        const quoteSymbol = payload.quoteAsset?.symbol || (isQuoteAda ? "ADA" : (payload.symbol || "GENS"));
+        const maxDiv = payload.maxDivergenceRatio ?? 0.10; // Default 10% divergence circuit-breaker
 
         const keyObj = keys[network];
         if (!keyObj) {
@@ -383,7 +398,7 @@ const server = http.createServer(async (req, res) => {
           return;
         }
 
-        let rate;
+        let rate; // Human exchange rate: Quote tokens per 1 Base token
         let quotes = [];
         let divPct = 0;
 
@@ -392,12 +407,27 @@ const server = http.createServer(async (req, res) => {
           rate = payload.overridePrice;
           quotes = [{ provider: "manual-override", price: rate, timestamp: Date.now() }];
         } else {
-          // Live market query
-          let queryUnit = baseUnit;
-          let querySymbol = symbol;
-          if (network === "preprod" && TESTNET_MAPPINGS[baseUnit]) {
-            queryUnit = TESTNET_MAPPINGS[baseUnit].mainnetUnit;
-            querySymbol = TESTNET_MAPPINGS[baseUnit].symbol;
+          // Determine which token to query against ADA
+          let queryUnit;
+          let querySymbol;
+          let invertRate = false;
+
+          if (isBaseAda && !isQuoteAda) {
+            // Base is ADA, Quote is Token.
+            // Query Token market price in ADA, then rate = 1 / tokenPriceInAda
+            queryUnit = quoteUnit;
+            querySymbol = quoteSymbol;
+            invertRate = true;
+          } else {
+            // Base is Token, Quote is ADA (or Token A to Token B)
+            queryUnit = baseUnit;
+            querySymbol = baseSymbol;
+            invertRate = false;
+          }
+
+          if (network === "preprod" && TESTNET_MAPPINGS[queryUnit]) {
+            querySymbol = TESTNET_MAPPINGS[queryUnit].symbol;
+            queryUnit = TESTNET_MAPPINGS[queryUnit].mainnetUnit;
           }
 
           const [minswap, dexscreener, gecko] = await Promise.all([
@@ -419,14 +449,16 @@ const server = http.createServer(async (req, res) => {
             );
             return;
           }
-          rate = evalRes.meanPrice;
+          const spotAdaPrice = evalRes.meanPrice;
+          rate = invertRate ? (spotAdaPrice > 0 ? 1 / spotAdaPrice : 0) : spotAdaPrice;
           divPct = evalRes.divergencePercent;
         }
 
-        const isAdaQuote = !quotePolicyHex || quotePolicyHex === "" || quotePolicyHex === "lovelace";
-        // Convert to lovelace if quote is ADA
-        const effectivePrice = isAdaQuote ? rate * 1_000_000 : rate;
-        const rational = toExactRational(effectivePrice);
+        const baseDec = resolveDecimals(baseUnit, baseSymbol, payload.baseAsset?.decimals ?? payload.baseDecimals);
+        const quoteDec = resolveDecimals(quoteUnit, quoteSymbol, payload.quoteAsset?.decimals ?? payload.quoteDecimals);
+        const decimalFactor = Math.pow(10, quoteDec - baseDec);
+        const effectiveAtomicPrice = rate * decimalFactor;
+        const rational = toExactRational(effectiveAtomicPrice);
         const timestampMs = BigInt(payload.timestampMs || Date.now());
 
         const cborHex = encodePriceTimestampData(
@@ -454,6 +486,7 @@ const server = http.createServer(async (req, res) => {
           timestampMs: Number(timestampMs),
           oraclePubKeyHex: keyObj.pubKeyHex,
           signatureHex,
+          cborHex,
           quotes,
           divergencePercent: divPct,
         };

@@ -439,9 +439,11 @@ export async function fetchAllLiquidityVaults(
       const tokenA = resolveTokenInfo(unitA, customTokens, network);
       const tokenB = resolveTokenInfo(unitB, customTokens, network);
 
-      // Current on-chain balances inside the UTxO
-      const amountA = BigInt(utxo.assets[unitA] || 0);
-      const amountB = BigInt(utxo.assets[unitB] || 0);
+      // Current on-chain balances inside the vault from datum accounting (fields[3][1] and fields[4][1]).
+      // NOTE: We MUST read from datum accounting, NOT utxo.assets[unit], because utxo.assets["lovelace"]
+      // contains the ~3 ADA minDeposit and protocol fee, which is NOT tradeable liquidity!
+      const amountA = parsed.fields[3]?.fields?.[1] != null ? BigInt(parsed.fields[3].fields[1]) : 0n;
+      const amountB = parsed.fields[4]?.fields?.[1] != null ? BigInt(parsed.fields[4].fields[1]) : 0n;
 
       const formattedAmountA = formatTokenAmount(amountA, tokenA.decimals);
       const formattedAmountB = formatTokenAmount(amountB, tokenB.decimals);

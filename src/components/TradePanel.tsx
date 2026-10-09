@@ -836,7 +836,12 @@ export const TradePanel: React.FC<TradePanelProps> = ({
                   <div className="flex items-center justify-between text-slate-300">
                     <span className="font-sans font-bold text-rose-400">2. YOU PAY (From wallet):</span>
                     <span className="font-bold text-white text-sm">
-                      {fillDetails.payFormatted.toFixed(4)} {fillDetails.makerAskedToken.symbol}
+                      {fillDetails.payFormatted < 0.0001
+                        ? fillDetails.payFormatted.toExponential(4)
+                        : fillDetails.payFormatted < 1
+                        ? fillDetails.payFormatted.toFixed(6)
+                        : fillDetails.payFormatted.toFixed(4)}{" "}
+                      {fillDetails.makerAskedToken.symbol}
                     </span>
                   </div>
 
@@ -871,9 +876,11 @@ export const TradePanel: React.FC<TradePanelProps> = ({
                 <div className="text-[11px] flex items-center justify-between text-slate-400 px-1">
                   <span>Your Wallet Balance:</span>
                   <span className="font-mono text-slate-300 font-semibold">
-                    {fillDetails.makerAskedToken.symbol === "ADA"
-                      ? `${userAdaBalance.toFixed(2)} ADA`
-                      : `${(fillDetails.makerAskedToken === tokenA ? userTokenABalance : userTokenBBalance).toFixed(2)} ${fillDetails.makerAskedToken.symbol}`}
+                    {fillDetails.makerAskedToken.unit === "lovelace" ||
+                    fillDetails.makerAskedToken.symbol === "ADA" ||
+                    fillDetails.makerAskedToken.symbol === "tADA"
+                      ? `${userAdaBalance.toFixed(2)} ${fillDetails.makerAskedToken.symbol}`
+                      : `${(fillDetails.makerAskedToken.unit === tokenA.unit ? userTokenABalance : userTokenBBalance).toFixed(2)} ${fillDetails.makerAskedToken.symbol}`}
                   </span>
                 </div>
 

@@ -724,6 +724,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         let oracleCert: SignedOracleCertificate | undefined;
 
         if (order.isDynamicOracle) {
+          const isReverse = order.vaultDirection === "reverse";
+          const baseToken = isReverse ? order.vaultData.tokenB : order.vaultData.tokenA;
+          const quoteToken = isReverse ? order.vaultData.tokenA : order.vaultData.tokenB;
+
           setActionMessage("Requesting dual-source oracle certificate from daemon...");
           const certRes = await fetch("https://2.28.204.8.sslip.io/api/v1/oracle/certificate", {
             method: "POST",
@@ -731,14 +735,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
             body: JSON.stringify({
               network: settings.network.toLowerCase(),
               baseAsset: {
-                policyHex: order.vaultData.tokenA.policyId || "",
-                tokenHex: order.vaultData.tokenA.assetName || "",
+                policyHex: baseToken.policyId || "",
+                tokenHex: baseToken.assetName || "",
+                symbol: baseToken.symbol || "",
               },
               quoteAsset: {
-                policyHex: order.vaultData.tokenB.policyId || "",
-                tokenHex: order.vaultData.tokenB.assetName || "",
+                policyHex: quoteToken.policyId || "",
+                tokenHex: quoteToken.assetName || "",
+                symbol: quoteToken.symbol || "",
               },
-              symbol: order.vaultData.tokenA.symbol || "GENS",
+              symbol: baseToken.symbol !== "ADA" && baseToken.symbol !== "tADA" ? baseToken.symbol : quoteToken.symbol,
             }),
           });
 

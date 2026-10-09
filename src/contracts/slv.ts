@@ -793,8 +793,6 @@ export async function fillLiquidityVault(
   const nftUnit = `${constants.slvNftPolicyId}${nftTokenName}`;
 
   const isStraight = params.direction !== "reverse";
-  const offerGross = params.fillAmount;
-  if (offerGross <= 0n) throw new Error("Fill amount must be positive.");
 
   const makerRatio = {
     numerator: BigInt(parsed.fields[10].fields[0]),
@@ -816,6 +814,13 @@ export async function fillLiquidityVault(
   const bPolicy = String(assetB.fields[0].fields[0]);
   const bToken = String(assetB.fields[0].fields[1]);
   const currentB = BigInt(assetB.fields[1]);
+
+  const availableLiquidity = isStraight ? currentA : currentB;
+  if (availableLiquidity <= 0n) {
+    throw new Error(`Vault has no remaining ${isStraight ? "straight" : "reverse"} liquidity to fill.`);
+  }
+  const offerGross = params.fillAmount > availableLiquidity ? availableLiquidity : params.fillAmount;
+  if (offerGross <= 0n) throw new Error("Fill amount must be positive.");
 
   const isAda = (pol: string) => !pol || pol === "" || pol === "lovelace";
   const unitOf = (pol: string, tok: string) => (isAda(pol) ? "lovelace" : `${pol}${tok}`);

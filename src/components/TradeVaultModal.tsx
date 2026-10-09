@@ -54,30 +54,36 @@ export const TradeVaultModal: React.FC<TradeVaultModalProps> = ({
       setOracleError(null);
 
       if (vault.pricingType === "delta_oracle" || vault.pricingType === "oracle_range") {
-        fetchOracleCert();
+        fetchOracleCert("straight");
       }
     }
   }, [isOpen, vault]);
 
-  const fetchOracleCert = async () => {
+  const fetchOracleCert = async (targetDirection: "straight" | "reverse" = direction) => {
     if (!vault) return;
     setOracleLoading(true);
     setOracleError(null);
     try {
+      const isRev = targetDirection === "reverse";
+      const baseTok = isRev ? vault.tokenB : vault.tokenA;
+      const quoteTok = isRev ? vault.tokenA : vault.tokenB;
+
       const res = await fetch("https://2.28.204.8.sslip.io/api/v1/oracle/certificate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           network: settings.network.toLowerCase(),
           baseAsset: {
-            policyHex: vault.tokenA.policyId,
-            tokenHex: vault.tokenA.assetName || "",
+            policyHex: baseTok.policyId || "",
+            tokenHex: baseTok.assetName || "",
+            symbol: baseTok.symbol || "",
           },
           quoteAsset: {
-            policyHex: vault.tokenB.policyId,
-            tokenHex: vault.tokenB.assetName || "",
+            policyHex: quoteTok.policyId || "",
+            tokenHex: quoteTok.assetName || "",
+            symbol: quoteTok.symbol || "",
           },
-          symbol: vault.tokenA.symbol || "GENS",
+          symbol: baseTok.symbol !== "ADA" && baseTok.symbol !== "tADA" ? baseTok.symbol : quoteTok.symbol,
         }),
       });
 
@@ -156,7 +162,9 @@ export const TradeVaultModal: React.FC<TradeVaultModalProps> = ({
       ? (vault.oracleDelta?.straightSpreadPercent ?? 0)
       : (vault.oracleDelta?.reverseSpreadPercent ?? 0);
     const effRate = baseRate * (1 + spreadPct / 100);
-    rateDisplay = `${formatNumericPrice(effRate)} ${tokenB.symbol} per ${tokenA.symbol}`;
+    const paySymbol = isStraight ? tokenB.symbol : tokenA.symbol;
+    const buySymbol = isStraight ? tokenA.symbol : tokenB.symbol;
+    rateDisplay = `${formatNumericPrice(effRate)} ${paySymbol} per ${buySymbol}`;
     estPaymentAmount = (parsedFillAmount || 0) * effRate;
   }
 
@@ -250,6 +258,9 @@ export const TradeVaultModal: React.FC<TradeVaultModalProps> = ({
                   onClick={() => {
                     setDirection("straight");
                     setFillAmountInput("");
+                    if (vault.pricingType === "delta_oracle" || vault.pricingType === "oracle_range") {
+                      fetchOracleCert("straight");
+                    }
                   }}
                   className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
                     isStraight
@@ -264,6 +275,9 @@ export const TradeVaultModal: React.FC<TradeVaultModalProps> = ({
                   onClick={() => {
                     setDirection("reverse");
                     setFillAmountInput("");
+                    if (vault.pricingType === "delta_oracle" || vault.pricingType === "oracle_range") {
+                      fetchOracleCert("reverse");
+                    }
                   }}
                   className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
                     !isStraight
