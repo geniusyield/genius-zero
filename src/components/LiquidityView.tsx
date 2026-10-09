@@ -32,6 +32,11 @@ import { calculateVaultOraclePrices, fetchLiveOraclePrice } from "../services/or
 import { TradeVaultModal } from "./TradeVaultModal";
 import { CreateVaultModal } from "./CreateVaultModal";
 
+const SUPPORTED_ORACLES: Record<string, string> = {
+  mainnet: "24207cde7ca2dc27431ff87b5324ab5b0d8c113f608f5143ff50a6bae60373c0",
+  preprod: "b953f42e6d44d217ed8ae94a20f3b448ca45757031dfdb2b879ae389cac68e29",
+};
+
 interface LiquidityViewProps {
   onOpenWallet: () => void;
   onOpenSettings: () => void;
@@ -546,6 +551,12 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
             const baseAmountFormatted = isReversed ? vault.formattedAmountB : vault.formattedAmountA;
             const quoteAmountFormatted = isReversed ? vault.formattedAmountA : vault.formattedAmountB;
 
+            const isDynamicOracle =
+              vault.pricingType === "delta_oracle" || vault.pricingType === "oracle_range";
+            const expectedOracleKey = SUPPORTED_ORACLES[settings.network.toLowerCase()]?.toLowerCase();
+            const vaultOracleKey = vault.oracleDelta?.oracleKey?.toLowerCase();
+            const isLegacyOracle = isDynamicOracle && !!vaultOracleKey && vaultOracleKey !== expectedOracleKey;
+
             return (
               <div
                 key={utxoId}
@@ -603,15 +614,22 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
                         My Vault
                       </span>
                     )}
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        vault.pricingType === "fixed"
-                          ? "bg-sky-950 text-sky-300 border border-sky-800/40"
-                          : "bg-emerald-950 text-emerald-300 border border-emerald-800/40"
-                      }`}
-                    >
-                      {vault.pricingType === "fixed" ? "Fixed Price" : "Oracle Dynamic"}
-                    </span>
+                    {vault.pricingType === "fixed" ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-950 text-sky-300 border border-sky-800/40">
+                        Fixed Price
+                      </span>
+                    ) : isLegacyOracle ? (
+                      <span
+                        className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-950/80 text-amber-300 border border-amber-800/50"
+                        title="This vault uses the decommissioned company oracle key and cannot be filled on-chain. Owner can cancel anytime."
+                      >
+                        Legacy Oracle (Inactive)
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800/40">
+                        Oracle Dynamic
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -792,19 +810,29 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
 
                 {/* Action Buttons: Trade & Cancel */}
                 <div className="mt-3 flex flex-col gap-2">
-                  <button
-                    onClick={() => {
-                      if (!wallet.connected) {
-                        onOpenWallet();
-                      } else {
-                        setTradingVault(vault);
-                      }
-                    }}
-                    className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 hover:text-white border border-sky-500/40 transition-all font-bold text-xs shadow-sm active:scale-[0.99]"
-                  >
-                    <ArrowRightLeft className="w-3.5 h-3.5 text-sky-400" />
-                    <span>Trade / Fill Liquidity</span>
-                  </button>
+                  {isLegacyOracle ? (
+                    <div
+                      className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-[#141b2b]/50 text-slate-500 border border-slate-800/60 font-medium text-xs cursor-not-allowed select-none"
+                      title="This vault uses the defunct company oracle key and cannot be filled on-chain. Owner can cancel anytime."
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-500/60 shrink-0" />
+                      <span>Unfillable (Legacy Oracle Key)</span>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        if (!wallet.connected) {
+                          onOpenWallet();
+                        } else {
+                          setTradingVault(vault);
+                        }
+                      }}
+                      className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 hover:text-white border border-sky-500/40 transition-all font-bold text-xs shadow-sm active:scale-[0.99]"
+                    >
+                      <ArrowRightLeft className="w-3.5 h-3.5 text-sky-400" />
+                      <span>Trade / Fill Liquidity</span>
+                    </button>
+                  )}
 
                   {/* Cancel Vault Button for Owner */}
                   {vault.isUserVault && (

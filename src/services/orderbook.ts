@@ -204,6 +204,17 @@ export function mapVaultLegToDexOrder(
   const isDynamicOracle =
     vault.pricingType === "delta_oracle" || vault.pricingType === "oracle_range";
 
+  if (isDynamicOracle) {
+    const vKey = vault.oracleDelta?.oracleKey?.toLowerCase();
+    const SUPPORTED_ORACLES = [
+      "24207cde7ca2dc27431ff87b5324ab5b0d8c113f608f5143ff50a6bae60373c0",
+      "b953f42e6d44d217ed8ae94a20f3b448ca45757031dfdb2b879ae389cac68e29",
+    ];
+    if (!vKey || !SUPPORTED_ORACLES.includes(vKey)) {
+      return null;
+    }
+  }
+
   if (isAtoB) {
     // Vault Token A = Base (e.g. GENS), Vault Token B = Quote (e.g. ADA)
     if (direction === "straight") {

@@ -17,6 +17,11 @@ import { fillLiquidityVault } from "../contracts/slv";
 import { SignedOracleCertificate } from "../services/oracle";
 import { formatNumericPrice, getVaultAdaReserve } from "../services/liquidity";
 
+const SUPPORTED_ORACLES: Record<string, string> = {
+  mainnet: "24207cde7ca2dc27431ff87b5324ab5b0d8c113f608f5143ff50a6bae60373c0",
+  preprod: "b953f42e6d44d217ed8ae94a20f3b448ca45757031dfdb2b879ae389cac68e29",
+};
+
 interface TradeVaultModalProps {
   vault: LiquidityVault | null;
   isOpen: boolean;
@@ -43,6 +48,12 @@ export const TradeVaultModal: React.FC<TradeVaultModalProps> = ({
   const [oracleLoading, setOracleLoading] = useState<boolean>(false);
   const [oracleError, setOracleError] = useState<string | null>(null);
 
+  const isDynamicOracle =
+    vault?.pricingType === "delta_oracle" || vault?.pricingType === "oracle_range";
+  const expectedOracleKey = SUPPORTED_ORACLES[settings.network.toLowerCase()]?.toLowerCase();
+  const vaultOracleKey = vault?.oracleDelta?.oracleKey?.toLowerCase();
+  const isLegacyOracle = isDynamicOracle && !!vaultOracleKey && vaultOracleKey !== expectedOracleKey;
+
   // Reset state when opening a new vault
   useEffect(() => {
     if (isOpen && vault) {
@@ -53,20 +64,21 @@ export const TradeVaultModal: React.FC<TradeVaultModalProps> = ({
       setOracleCert(null);
       setOracleError(null);
 
-      if (vault.pricingType === "delta_oracle" || vault.pricingType === "oracle_range") {
-        fetchOracleCert("straight");
+      if (isDynamicOracle && !isLegacyOracle) {
+        fetchOracleCert();
       }
     }
-  }, [isOpen, vault]);
+  }, [isOpen, vault, isLegacyOracle]);
 
-  const fetchOracleCert = async (targetDirection: "straight" | "reverse" = direction) => {
-    if (!vault) return;
+  const fetchOracleCert = async () => {
+    if (!vault || isLegacyOracle) return;
     setOracleLoading(true);
     setOracleError(null);
     try {
-      const isRev = targetDirection === "reverse";
-      const baseTok = isRev ? vault.tokenB : vault.tokenA;
-      const quoteTok = isRev ? vault.tokenA : vault.tokenB;
+      // Invariant: baseAsset MUST be tokenA and quoteAsset MUST be tokenB
+      // to match the on-chain PriceTimestamp validator constraints.
+      const baseTok = vault.tokenA;
+      const quoteTok = vault.tokenB;
 
       const res = await fetch("https://2.28.204.8.sslip.io/api/v1/oracle/certificate", {
         method: "POST",
@@ -157,15 +169,19 @@ export const TradeVaultModal: React.FC<TradeVaultModalProps> = ({
       estPaymentAmount = (parsedFillAmount || 0) * revRate;
     }
   } else if (oracleCert) {
-    const baseRate = oracleCert.price.approximateRate;
-    const spreadPct = isStraight
-      ? (vault.oracleDelta?.straightSpreadPercent ?? 0)
-      : (vault.oracleDelta?.reverseSpreadPercent ?? 0);
-    const effRate = baseRate * (1 + spreadPct / 100);
-    const paySymbol = isStraight ? tokenB.symbol : tokenA.symbol;
-    const buySymbol = isStraight ? tokenA.symbol : tokenB.symbol;
-    rateDisplay = `${formatNumericPrice(effRate)} ${paySymbol} per ${buySymbol}`;
-    estPaymentAmount = (parsedFillAmount || 0) * effRate;
+    const baseRate = oracleCert.price.approximateRate; // Token B per Token A
+    if (isStraight) {
+      const spreadPct = vault.oracleDelta?.straightSpreadPercent ?? 0;
+      const effRate = baseRate * (1 + spreadPct / 100);
+      rateDisplay = `${formatNumericPrice(effRate)} ${tokenB.symbol} per ${tokenA.symbol}`;
+      estPaymentAmount = (parsedFillAmount || 0) * effRate;
+    } else {
+      const invBaseRate = baseRate > 0 ? 1 / baseRate : 0;
+      const spreadPct = vault.oracleDelta?.reverseSpreadPercent ?? 0;
+      const effRate = invBaseRate * (1 + spreadPct / 100);
+      rateDisplay = `${formatNumericPrice(effRate)} ${tokenA.symbol} per ${tokenB.symbol}`;
+      estPaymentAmount = (parsedFillAmount || 0) * effRate;
+    }
   }
 
   if (estPaymentAmount > 0) {
@@ -258,8 +274,8 @@ export const TradeVaultModal: React.FC<TradeVaultModalProps> = ({
                   onClick={() => {
                     setDirection("straight");
                     setFillAmountInput("");
-                    if (vault.pricingType === "delta_oracle" || vault.pricingType === "oracle_range") {
-                      fetchOracleCert("straight");
+                    if (isDynamicOracle && !isLegacyOracle && !oracleCert) {
+                      fetchOracleCert();
                     }
                   }}
                   className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
@@ -275,8 +291,8 @@ export const TradeVaultModal: React.FC<TradeVaultModalProps> = ({
                   onClick={() => {
                     setDirection("reverse");
                     setFillAmountInput("");
-                    if (vault.pricingType === "delta_oracle" || vault.pricingType === "oracle_range") {
-                      fetchOracleCert("reverse");
+                    if (isDynamicOracle && !isLegacyOracle && !oracleCert) {
+                      fetchOracleCert();
                     }
                   }}
                   className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
@@ -295,8 +311,26 @@ export const TradeVaultModal: React.FC<TradeVaultModalProps> = ({
             </div>
           )}
 
-          {/* Oracle Status Box (if dynamic) */}
-          {(vault.pricingType === "delta_oracle" || vault.pricingType === "oracle_range") && (
+          {/* Legacy Oracle Warning Banner */}
+          {isLegacyOracle && (
+            <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs space-y-2">
+              <div className="flex items-center gap-2 font-bold text-amber-400">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>Defunct Company Oracle Key</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-slate-300">
+                This vault was registered under the decommissioned Genius Yield company oracle key (
+                <span className="font-mono text-amber-300">{vault.oracleDelta?.oracleKey?.slice(0, 10)}...</span>).
+                Because the company oracle key was never published, Plutus signature verification will fail for fills.
+              </p>
+              <p className="text-[11px] leading-relaxed text-slate-300">
+                If you are the owner of this vault, you can safely cancel it and withdraw all your funds at any time from the Liquidity tab.
+              </p>
+            </div>
+          )}
+
+          {/* Oracle Status Box (if dynamic and sovereign) */}
+          {!isLegacyOracle && isDynamicOracle && (
             <div className="p-3.5 rounded-2xl bg-[#0b0e14] border border-[#1f2d44] space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-semibold text-slate-300 flex items-center gap-1.5">
@@ -321,7 +355,7 @@ export const TradeVaultModal: React.FC<TradeVaultModalProps> = ({
                   <div className="flex justify-between">
                     <span>Sources:</span>
                     <span className="text-slate-200 font-mono">
-                      {oracleCert.quotes?.map((q) => q.provider).join(", ") || "Minswap, DexScreener"}
+                      {oracleCert.quotes?.map((q) => q.provider).join(", ") || "Minswap, GeckoTerminal, Blockfrost"}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -431,7 +465,7 @@ export const TradeVaultModal: React.FC<TradeVaultModalProps> = ({
             <button
               type="button"
               onClick={handleTrade}
-              disabled={isSubmitting || !isValidAmount || (vault.pricingType !== "fixed" && !oracleCert)}
+              disabled={isSubmitting || !isValidAmount || isLegacyOracle || (vault.pricingType !== "fixed" && !oracleCert)}
               className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-sm shadow-lg shadow-sky-500/20 disabled:opacity-40 disabled:pointer-events-none transition-all flex items-center justify-center gap-2 active:scale-[0.99]"
             >
               {isSubmitting ? (
@@ -442,7 +476,11 @@ export const TradeVaultModal: React.FC<TradeVaultModalProps> = ({
               ) : (
                 <>
                   <ArrowRightLeft className="w-4 h-4" />
-                  <span>Execute Trade ({isStraight ? `Buy ${tokenA.symbol}` : `Buy ${tokenB.symbol}`})</span>
+                  <span>
+                    {isLegacyOracle
+                      ? "Vault Cannot Be Filled (Legacy Oracle Key)"
+                      : `Execute Trade (${isStraight ? `Buy ${tokenA.symbol}` : `Buy ${tokenB.symbol}`})`}
+                  </span>
                 </>
               )}
             </button>

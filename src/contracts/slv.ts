@@ -881,7 +881,11 @@ export async function fillLiquidityVault(
           denominator: BigInt(revDelta.fields[1].fields[1]),
         },
       };
-      price = applyPriceDelta(oraclePrice, delta);
+      const invOraclePrice = {
+        numerator: oraclePrice.denominator,
+        denominator: oraclePrice.numerator,
+      };
+      price = applyPriceDelta(invOraclePrice, delta);
     }
   }
 
