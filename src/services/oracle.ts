@@ -128,7 +128,15 @@ export async function fetchGeckoTerminalPrice(symbol: string): Promise<PriceQuot
 
     if (!res.ok) return null;
     const data = await res.json();
-    const pool = data?.data?.[0];
+    const targetSymbol = symbol.toUpperCase();
+    const pool = (data?.data || [])
+      .filter((p: any) => {
+        const poolName = (p.attributes?.name || "").toUpperCase();
+        const [baseSym, quoteSym] = poolName.split("/").map((s: string) => s.trim());
+        return baseSym === targetSymbol && (quoteSym === "ADA" || quoteSym === "WADA");
+      })
+      .sort((a: any, b: any) => parseFloat(b.attributes?.reserve_in_usd || 0) - parseFloat(a.attributes?.reserve_in_usd || 0))[0];
+
     if (pool && pool.attributes?.base_token_price_native_currency) {
       const price = parseFloat(pool.attributes.base_token_price_native_currency);
       if (Number.isFinite(price) && price > 0) {
