@@ -219,8 +219,8 @@ async function main() {
   // Find a live Mainnet GENS/ADA order to test simulation
   const pair = DEFAULT_MAINNET_TRADING_PAIRS.find((p) => p.id === "GENS-ADA")!;
   const book = await fetchAllOrdersForPair(lucid, "mainnet", pair);
-  const targetOrder = book.asks[0] || book.bids[0];
-  assert.ok(targetOrder, "Must find at least one active order for GENS-ADA on Mainnet");
+  const targetOrder = book.asks.find((o) => !o.isVault) || book.bids.find((o) => !o.isVault);
+  assert.ok(targetOrder, "Must find at least one active standard order for GENS-ADA on Mainnet");
 
   const [orderUTxO] = await lucid.utxosByOutRef([targetOrder.utxoRef]);
   assert.ok(orderUTxO, "Must find order UTxO on Mainnet");

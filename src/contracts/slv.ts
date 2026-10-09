@@ -870,14 +870,15 @@ export async function fillLiquidityVault(
       if (priceField.fields[2].index !== 0) {
         throw new Error("Order does not support reverse fills under dynamic pricing.");
       }
+      const revDelta = priceField.fields[2].fields[0];
       const delta = {
         offset: {
-          numerator: BigInt(priceField.fields[2].fields[0].fields[0]),
-          denominator: BigInt(priceField.fields[2].fields[0].fields[1]),
+          numerator: BigInt(revDelta.fields[0].fields[0]),
+          denominator: BigInt(revDelta.fields[0].fields[1]),
         },
         spread: {
-          numerator: BigInt(priceField.fields[2].fields[1].fields[0]),
-          denominator: BigInt(priceField.fields[2].fields[1].fields[1]),
+          numerator: BigInt(revDelta.fields[1].fields[0]),
+          denominator: BigInt(revDelta.fields[1].fields[1]),
         },
       };
       price = applyPriceDelta(oraclePrice, delta);

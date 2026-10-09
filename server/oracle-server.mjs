@@ -72,6 +72,10 @@ const TESTNET_MAPPINGS = {
     mainnetUnit: "dda5fdb1002f7389b33e036b6afee82a8189becb6cba852e8b79b4fb0014df1047454e53",
     symbol: "GENS",
   },
+  "79cb35ac4638bd5b493ee64a91b05d8de7ab0114b729a23f1bdfdce6545354": {
+    mainnetUnit: "dda5fdb1002f7389b33e036b6afee82a8189becb6cba852e8b79b4fb0014df1047454e53",
+    symbol: "GENS",
+  },
 };
 
 // 1. Fetch Minswap
@@ -183,7 +187,160 @@ async function fetchGeckoTerminalPrice(unit, symbol) {
   }
 }
 
-// 4. Divergence circuit breaker
+function getBlockfrostKey() {
+  if (process.env.BLOCKFROST_API_KEY_MAINNET) return process.env.BLOCKFROST_API_KEY_MAINNET;
+  if (process.env.BLOCKFROST_KEY) return process.env.BLOCKFROST_KEY;
+  const cfgPath = "/opt/genius-claim/config/config.json";
+  if (fs.existsSync(cfgPath)) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+      return cfg.blockfrostApiKey || cfg.blockfrostKey || null;
+    } catch {}
+  }
+  return "";
+}
+const BLOCKFROST_MAINNET_KEY = getBlockfrostKey();
+
+// 4. Fetch On-Chain Minswap V2 Pool UTxO via Blockfrost
+async function fetchOnChainMinswapPoolPrice(unit) {
+  if (unit === "lovelace" || !unit) {
+    return { provider: "blockfrost-minswap-v2-onchain", price: 1.0, timestamp: Date.now() };
+  }
+  if (!BLOCKFROST_MAINNET_KEY) return null;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    const poolAddr = "addr1z84q0denmyep98ph3tmzwsmw0j7zau9ljmsqx6a4rvaau66j2c79gy9l76sdg0xwhd7r0c0kna0tycz4y5s6mlenh8pq777e2a";
+    const res = await fetch(`https://cardano-mainnet.blockfrost.io/api/v0/addresses/${poolAddr}/utxos/${unit}`, {
+      headers: { project_id: BLOCKFROST_MAINNET_KEY },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+    const utxos = await res.json();
+    for (const u of utxos) {
+      const hasFactoryNft = u.amount.some(a => a.unit === "f5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c4d5350");
+      const lovelaceAmt = u.amount.find(a => a.unit === "lovelace")?.quantity;
+      const tokenAmt = u.amount.find(a => a.unit === unit)?.quantity;
+      if (hasFactoryNft && lovelaceAmt && tokenAmt && u.amount.length === 4) {
+        const p = Number(lovelaceAmt) / Number(tokenAmt);
+        if (Number.isFinite(p) && p > 0) {
+          return { provider: "blockfrost-minswap-v2-onchain", price: p, timestamp: Date.now() };
+        }
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// 5. Fetch CoinGecko Tickers
+async function fetchCoinGeckoPrice(symbol, unit) {
+  const sym = (symbol || "").toUpperCase();
+  if (sym === "ADA" || sym === "TADA" || unit === "lovelace") {
+    return { provider: "coingecko", price: 1.0, timestamp: Date.now() };
+  }
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    let coinId = null;
+    if (sym === "GENS" || sym === "TGENS") {
+      coinId = "genius-yield";
+    } else if (sym === "MIN") {
+      coinId = "minswap";
+    } else if (sym === "SNEK") {
+      coinId = "snek";
+    } else if (sym === "INDY") {
+      coinId = "indigo-protocol";
+    } else if (sym === "IAG") {
+      coinId = "iagon";
+    }
+
+    if (!coinId) {
+      const sRes = await fetch(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(sym)}`, {
+        signal: controller.signal,
+      });
+      if (sRes.ok) {
+        const sData = await sRes.json();
+        coinId = sData?.coins?.[0]?.id;
+      }
+    }
+    if (!coinId) {
+      clearTimeout(timeout);
+      return null;
+    }
+
+    const res = await fetch(`https://api.coingecko.com/api/v3/coins/${coinId}/tickers`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const ticker = data?.tickers?.find(
+      (t) => (t.target === "0X" || t.target === "ADA" || t.target === "WADA") && t.last > 0
+    );
+    if (ticker && typeof ticker.last === "number" && ticker.last > 0) {
+      return { provider: "coingecko", price: ticker.last, timestamp: Date.now() };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// In-memory cache for multi-source quotes
+const priceCache = new Map();
+const CACHE_FRESH_MS = 45_000; // 45 seconds fresh
+const CACHE_STALE_MS = 300_000; // 5 minutes stale grace
+
+async function getMultiSourceQuotes(queryUnit, querySymbol) {
+  const cacheKey = `${queryUnit}:${querySymbol}`;
+  const cached = priceCache.get(cacheKey);
+  const now = Date.now();
+
+  if (cached && (now - cached.timestamp < CACHE_FRESH_MS) && cached.quotes.length >= 2) {
+    return cached.quotes;
+  }
+
+  const [minswap, dexscreener, gecko, blockfrost, coingecko] = await Promise.all([
+    fetchMinswapPrice(queryUnit),
+    fetchDexScreenerPrice(queryUnit),
+    fetchGeckoTerminalPrice(queryUnit, querySymbol),
+    fetchOnChainMinswapPoolPrice(queryUnit),
+    fetchCoinGeckoPrice(querySymbol, queryUnit),
+  ]);
+
+  const freshQuotes = [minswap, dexscreener, gecko, blockfrost, coingecko].filter(Boolean);
+
+  if (freshQuotes.length >= 2) {
+    priceCache.set(cacheKey, { quotes: freshQuotes, timestamp: now });
+    return freshQuotes;
+  }
+
+  if (cached && (now - cached.timestamp < CACHE_STALE_MS) && cached.quotes.length >= 2) {
+    console.warn(`[OracleServer] Using stale cached quotes (${Math.round((now - cached.timestamp) / 1000)}s old) due to rate-limit/timeout on external APIs.`);
+    return cached.quotes;
+  }
+
+  if (cached && freshQuotes.length > 0) {
+    const providers = new Set(freshQuotes.map(q => q.provider));
+    const merged = [...freshQuotes];
+    for (const cq of cached.quotes) {
+      if (!providers.has(cq.provider)) {
+        merged.push(cq);
+      }
+    }
+    if (merged.length >= 2) {
+      priceCache.set(cacheKey, { quotes: merged, timestamp: now });
+      return merged;
+    }
+  }
+
+  return freshQuotes;
+}
+
+// 6. Divergence circuit breaker
 function evaluateDivergence(quotes, maxDivergenceRatio = 0.05) {
   if (quotes.length < 2) {
     return {
@@ -353,12 +510,7 @@ const server = http.createServer(async (req, res) => {
         querySymbol = TESTNET_MAPPINGS[unit].symbol;
       }
 
-      const [minswap, dexscreener, gecko] = await Promise.all([
-        fetchMinswapPrice(queryUnit),
-        fetchDexScreenerPrice(queryUnit),
-        fetchGeckoTerminalPrice(queryUnit, querySymbol),
-      ]);
-      const quotes = [minswap, dexscreener, gecko].filter(Boolean);
+      const quotes = await getMultiSourceQuotes(queryUnit, querySymbol);
       const evalResult = evaluateDivergence(quotes, maxDiv);
 
       res.writeHead(evalResult.approved ? 200 : 422, { "Content-Type": "application/json" });
@@ -430,12 +582,7 @@ const server = http.createServer(async (req, res) => {
             queryUnit = TESTNET_MAPPINGS[queryUnit].mainnetUnit;
           }
 
-          const [minswap, dexscreener, gecko] = await Promise.all([
-            fetchMinswapPrice(queryUnit),
-            fetchDexScreenerPrice(queryUnit),
-            fetchGeckoTerminalPrice(queryUnit, querySymbol),
-          ]);
-          quotes = [minswap, dexscreener, gecko].filter(Boolean);
+          const quotes = await getMultiSourceQuotes(queryUnit, querySymbol);
           const evalRes = evaluateDivergence(quotes, maxDiv);
           if (!evalRes.approved) {
             res.writeHead(422, { "Content-Type": "application/json" });
