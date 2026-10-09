@@ -143,30 +143,44 @@ async function fetchGeckoTerminalPrice(unit, symbol) {
   if (symbol.toUpperCase() === "ADA" || symbol.toUpperCase() === "TADA") {
     return { provider: "geckoterminal", price: 1.0, timestamp: Date.now() };
   }
+  const targetSymbol = (symbol || "").toUpperCase();
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 6000);
 
-    // Try token pools directly first
-    if (unit && unit !== "lovelace") {
-      const res = await fetch(`https://api.geckoterminal.com/api/v2/networks/cardano/tokens/${unit}/pools`, {
-        headers: { Accept: "application/json" },
-        signal: controller.signal,
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const pool = data?.data?.[0];
-        if (pool && pool.attributes?.base_token_price_native_currency) {
-          const p = parseFloat(pool.attributes.base_token_price_native_currency);
-          if (Number.isFinite(p) && p > 0) {
-            clearTimeout(timeout);
-            return { provider: "geckoterminal", price: p, timestamp: Date.now() };
+    // Try token pools directly first (check unit and CIP-67 unit)
+    const candidateUnits = [unit];
+    if (unit && unit.length > 56 && !unit.slice(56).startsWith("0014df10")) {
+      candidateUnits.push(`${unit.slice(0, 56)}0014df10${unit.slice(56)}`);
+    }
+
+    for (const u of candidateUnits) {
+      if (u && u !== "lovelace") {
+        try {
+          const res = await fetch(`https://api.geckoterminal.com/api/v2/networks/cardano/tokens/${u}/pools`, {
+            headers: { Accept: "application/json" },
+            signal: controller.signal,
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const pool = (data?.data || []).find((p) => {
+              const poolName = (p.attributes?.name || "").toUpperCase();
+              const [baseSym] = poolName.split("/").map((s) => s.trim());
+              return baseSym === targetSymbol;
+            }) || data?.data?.[0];
+            if (pool && pool.attributes?.base_token_price_native_currency) {
+              const p = parseFloat(pool.attributes.base_token_price_native_currency);
+              if (Number.isFinite(p) && p > 0) {
+                clearTimeout(timeout);
+                return { provider: "geckoterminal", price: p, timestamp: Date.now() };
+              }
+            }
           }
-        }
+        } catch {}
       }
     }
 
-    // Fallback to pool search by symbol
+    // Fallback to pool search by symbol, strictly filtering by symbol name and largest liquidity
     const resSearch = await fetch(
       `https://api.geckoterminal.com/api/v2/search/pools?query=${encodeURIComponent(symbol)}&network=cardano`,
       { headers: { Accept: "application/json" }, signal: controller.signal }
@@ -174,7 +188,15 @@ async function fetchGeckoTerminalPrice(unit, symbol) {
     clearTimeout(timeout);
     if (!resSearch.ok) return null;
     const data = await resSearch.json();
-    const pool = data?.data?.[0];
+    const matchedPools = (data?.data || [])
+      .filter((p) => {
+        const poolName = (p.attributes?.name || "").toUpperCase();
+        const [baseSym, quoteSym] = poolName.split("/").map((s) => s.trim());
+        return baseSym === targetSymbol && (quoteSym === "ADA" || quoteSym === "WADA");
+      })
+      .sort((a, b) => parseFloat(b.attributes?.reserve_in_usd || 0) - parseFloat(a.attributes?.reserve_in_usd || 0));
+
+    const pool = matchedPools[0];
     if (pool && pool.attributes?.base_token_price_native_currency) {
       const p = parseFloat(pool.attributes.base_token_price_native_currency);
       if (Number.isFinite(p) && p > 0) {
@@ -207,28 +229,38 @@ async function fetchOnChainMinswapPoolPrice(unit) {
     return { provider: "blockfrost-minswap-v2-onchain", price: 1.0, timestamp: Date.now() };
   }
   if (!BLOCKFROST_MAINNET_KEY) return null;
+  const candidateUnits = [unit];
+  if (unit.length > 56 && !unit.slice(56).startsWith("0014df10")) {
+    candidateUnits.push(`${unit.slice(0, 56)}0014df10${unit.slice(56)}`);
+  }
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 6000);
     const poolAddr = "addr1z84q0denmyep98ph3tmzwsmw0j7zau9ljmsqx6a4rvaau66j2c79gy9l76sdg0xwhd7r0c0kna0tycz4y5s6mlenh8pq777e2a";
-    const res = await fetch(`https://cardano-mainnet.blockfrost.io/api/v0/addresses/${poolAddr}/utxos/${unit}`, {
-      headers: { project_id: BLOCKFROST_MAINNET_KEY },
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (!res.ok) return null;
-    const utxos = await res.json();
-    for (const u of utxos) {
-      const hasFactoryNft = u.amount.some(a => a.unit === "f5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c4d5350");
-      const lovelaceAmt = u.amount.find(a => a.unit === "lovelace")?.quantity;
-      const tokenAmt = u.amount.find(a => a.unit === unit)?.quantity;
-      if (hasFactoryNft && lovelaceAmt && tokenAmt && u.amount.length === 4) {
-        const p = Number(lovelaceAmt) / Number(tokenAmt);
-        if (Number.isFinite(p) && p > 0) {
-          return { provider: "blockfrost-minswap-v2-onchain", price: p, timestamp: Date.now() };
+    for (const u of candidateUnits) {
+      try {
+        const res = await fetch(`https://cardano-mainnet.blockfrost.io/api/v0/addresses/${poolAddr}/utxos/${u}`, {
+          headers: { project_id: BLOCKFROST_MAINNET_KEY },
+          signal: controller.signal,
+        });
+        if (res.ok) {
+          const utxos = await res.json();
+          for (const utxo of utxos) {
+            const hasFactoryNft = utxo.amount.some((a) => a.unit === "f5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c4d5350");
+            const lovelaceAmt = utxo.amount.find((a) => a.unit === "lovelace")?.quantity;
+            const tokenAmt = utxo.amount.find((a) => a.unit === u)?.quantity;
+            if (hasFactoryNft && lovelaceAmt && tokenAmt && utxo.amount.length === 4) {
+              const p = Number(lovelaceAmt) / Number(tokenAmt);
+              if (Number.isFinite(p) && p > 0) {
+                clearTimeout(timeout);
+                return { provider: "blockfrost-minswap-v2-onchain", price: p, timestamp: Date.now() };
+              }
+            }
+          }
         }
-      }
+      } catch {}
     }
+    clearTimeout(timeout);
     return null;
   } catch {
     return null;
