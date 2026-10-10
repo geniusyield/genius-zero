@@ -398,7 +398,10 @@ export async function cancelLiquidityVault(
     .addSignerKey(ownerPkh);
 
   // 7. Complete, sign with user wallet, submit (use provider for Plutus V3 evaluation)
-  const completedTx = await tx.complete({ localUPLCEval: false });
+  const completedTx = await tx.complete({
+    localUPLCEval: false,
+    setCollateral: 3_000_000n,
+  });
   const signedTx = await completedTx.sign.withWallet().complete();
   const txHash = await signedTx.submit();
 
@@ -504,7 +507,10 @@ export async function cancelLiquidityVaults(
     tx = tx.addSignerKey(signer);
   }
 
-  const completedTx = await tx.complete({ localUPLCEval: false });
+  const completedTx = await tx.complete({
+    localUPLCEval: false,
+    setCollateral: 3_000_000n,
+  });
   const signedTx = await completedTx.sign.withWallet().complete();
   const txHash = await signedTx.submit();
 
@@ -739,7 +745,10 @@ export async function createLiquidityVault(
     .mintAssets({ [nftUnit]: 1n }, mintRedeemer)
     .addSignerKey(ownerPkh);
 
-  const completedTx = await tx.complete({ localUPLCEval: false });
+  const completedTx = await tx.complete({
+    localUPLCEval: false,
+    setCollateral: 3_000_000n,
+  });
   const signedTx = await completedTx.sign.withWallet().complete();
   const txHash = await signedTx.submit();
 
@@ -752,6 +761,7 @@ export interface FillLiquidityVaultParams {
   direction?: "straight" | "reverse";
   oracleCertificate?: SignedOracleCertificate;
   recipientAddress?: string;
+  simulateOnly?: boolean;
 }
 
 /**
@@ -881,11 +891,7 @@ export async function fillLiquidityVault(
           denominator: BigInt(revDelta.fields[1].fields[1]),
         },
       };
-      const invOraclePrice = {
-        numerator: oraclePrice.denominator,
-        denominator: oraclePrice.numerator,
-      };
-      price = applyPriceDelta(invOraclePrice, delta);
+      price = applyPriceDelta(oraclePrice, delta);
     }
   }
 
@@ -970,11 +976,8 @@ export async function fillLiquidityVault(
     }
   }
 
-  // Ensure fee output meets Cardano min-UTxO requirement if it contains custom assets
-  if (
-    Object.keys(feeAssets).some((k) => k !== "lovelace") &&
-    feeAssets.lovelace < 1_300_000n
-  ) {
+  // Ensure fee output meets Cardano min-UTxO requirement
+  if (!feeAssets.lovelace || feeAssets.lovelace < 1_300_000n) {
     feeAssets.lovelace = 1_300_000n;
   }
 
@@ -1010,13 +1013,17 @@ export async function fillLiquidityVault(
   }
 
   // 11. Assemble transaction
+  // Output 0: Taker payout
+  // Output 1: Continuing vault output
+  // Output 2: Protocol fee output
   let tx = lucid
     .newTx()
     .readFrom([configUtxo, spendRefUtxo, fillRefUtxo])
     .collectFrom([vaultUtxo], Data.to(new Constr(1, []))) // OrderRedeemer::FillOrder
     .withdraw(fillStakeAddr, 0n, fillStakeRedeemer)
+    .pay.ToAddress(takerRecipient, takerAssets)
     .pay.ToAddressWithData(
-      constants.slvAddr,
+      vaultUtxo.address,
       {
         kind: "inline",
         value: Data.to(updatedDatum),
@@ -1030,18 +1037,25 @@ export async function fillLiquidityVault(
         value: Data.to(constants.slvNftPolicyId),
       },
       feeAssets
-    )
-    .pay.ToAddress(takerRecipient, takerAssets);
+    );
 
   if (params.oracleCertificate) {
     const validToMs =
       Number(params.oracleCertificate.timestampMs) +
       Number(freshnessSeconds) * 1000 -
       5000;
-    tx = tx.validTo(validToMs).validFrom(Date.now() - 30_000);
+    tx = tx.validTo(validToMs);
   }
 
-  const completedTx = await tx.complete({ localUPLCEval: false });
+  const completedTx = await tx.complete({
+    localUPLCEval: false,
+    setCollateral: 3_000_000n,
+  });
+
+  if (params.simulateOnly) {
+    return "simulated_ok";
+  }
+
   const signedTx = await completedTx.sign.withWallet().complete();
   const txHash = await signedTx.submit();
 

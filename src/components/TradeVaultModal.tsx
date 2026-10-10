@@ -65,20 +65,22 @@ export const TradeVaultModal: React.FC<TradeVaultModalProps> = ({
       setOracleError(null);
 
       if (isDynamicOracle && !isLegacyOracle) {
-        fetchOracleCert();
+        fetchOracleCert("straight");
       }
     }
   }, [isOpen, vault, isLegacyOracle]);
 
-  const fetchOracleCert = async () => {
+  const fetchOracleCert = async (dir: "straight" | "reverse" = direction) => {
     if (!vault || isLegacyOracle) return;
+    setOracleCert(null);
     setOracleLoading(true);
     setOracleError(null);
     try {
-      // Invariant: baseAsset MUST be tokenA and quoteAsset MUST be tokenB
-      // to match the on-chain PriceTimestamp validator constraints.
-      const baseTok = vault.tokenA;
-      const quoteTok = vault.tokenB;
+      // Invariant: For straight trade, baseAsset is tokenA and quoteAsset is tokenB.
+      // For reverse trade, baseAsset is tokenB and quoteAsset is tokenA.
+      const isStr = dir === "straight";
+      const baseTok = isStr ? vault.tokenA : vault.tokenB;
+      const quoteTok = isStr ? vault.tokenB : vault.tokenA;
 
       const res = await fetch("https://2.28.204.8.sslip.io/api/v1/oracle/certificate", {
         method: "POST",
@@ -169,16 +171,17 @@ export const TradeVaultModal: React.FC<TradeVaultModalProps> = ({
       estPaymentAmount = (parsedFillAmount || 0) * revRate;
     }
   } else if (oracleCert) {
-    const baseRate = oracleCert.price.approximateRate; // Token B per Token A
+    const baseRate = oracleCert.price.approximateRate; // Quote per Base
     if (isStraight) {
       const spreadPct = vault.oracleDelta?.straightSpreadPercent ?? 0;
-      const effRate = baseRate * (1 + spreadPct / 100);
+      const offset = vault.oracleDelta?.straightOffset ?? 0;
+      const effRate = baseRate * (1 + spreadPct / 100) + offset;
       rateDisplay = `${formatNumericPrice(effRate)} ${tokenB.symbol} per ${tokenA.symbol}`;
       estPaymentAmount = (parsedFillAmount || 0) * effRate;
     } else {
-      const invBaseRate = baseRate > 0 ? 1 / baseRate : 0;
       const spreadPct = vault.oracleDelta?.reverseSpreadPercent ?? 0;
-      const effRate = invBaseRate * (1 + spreadPct / 100);
+      const offset = vault.oracleDelta?.reverseOffset ?? 0;
+      const effRate = baseRate * (1 + spreadPct / 100) + offset;
       rateDisplay = `${formatNumericPrice(effRate)} ${tokenA.symbol} per ${tokenB.symbol}`;
       estPaymentAmount = (parsedFillAmount || 0) * effRate;
     }
@@ -274,8 +277,8 @@ export const TradeVaultModal: React.FC<TradeVaultModalProps> = ({
                   onClick={() => {
                     setDirection("straight");
                     setFillAmountInput("");
-                    if (isDynamicOracle && !isLegacyOracle && !oracleCert) {
-                      fetchOracleCert();
+                    if (isDynamicOracle && !isLegacyOracle) {
+                      fetchOracleCert("straight");
                     }
                   }}
                   className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
@@ -291,8 +294,8 @@ export const TradeVaultModal: React.FC<TradeVaultModalProps> = ({
                   onClick={() => {
                     setDirection("reverse");
                     setFillAmountInput("");
-                    if (isDynamicOracle && !isLegacyOracle && !oracleCert) {
-                      fetchOracleCert();
+                    if (isDynamicOracle && !isLegacyOracle) {
+                      fetchOracleCert("reverse");
                     }
                   }}
                   className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
