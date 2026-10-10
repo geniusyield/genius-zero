@@ -470,9 +470,16 @@ export const CreateVaultModal: React.FC<CreateVaultModalProps> = ({
                   <span>Dual-Source Oracle Service</span>
                 </div>
                 {liveOraclePrice ? (
-                  <span className="font-mono text-sky-400 text-[11px]">
-                    1 {tokenA.symbol} = {formatNumericPrice(liveOraclePrice)} {tokenB.symbol}
-                  </span>
+                  <div className="flex flex-col items-end font-mono text-[11px] space-y-0.5">
+                    <span className="text-sky-400">
+                      1 {tokenA.symbol} = {formatNumericPrice(liveOraclePrice)} {tokenB.symbol}
+                    </span>
+                    {liveOraclePrice > 0 && (
+                      <span className="text-slate-400 text-[10px]">
+                        1 {tokenB.symbol} = {formatNumericPrice(1 / liveOraclePrice)} {tokenA.symbol}
+                      </span>
+                    )}
+                  </div>
                 ) : liveOracleLoading ? (
                   <span className="text-slate-500 text-[10px] animate-pulse">Fetching rate...</span>
                 ) : null}

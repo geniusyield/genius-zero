@@ -355,6 +355,19 @@ export const TradeVaultModal: React.FC<TradeVaultModalProps> = ({
 
               {oracleCert && (
                 <div className="text-[11px] text-slate-400 space-y-1">
+                  <div className="flex justify-between items-start">
+                    <span className="shrink-0 pt-0.5">Live Oracle:</span>
+                    <div className="flex flex-col items-end font-mono text-[10px]">
+                      <span className="text-emerald-400 font-semibold">
+                        1 {isStraight ? tokenA.symbol : tokenB.symbol} = {formatNumericPrice(oracleCert.price.approximateRate)} {isStraight ? tokenB.symbol : tokenA.symbol}
+                      </span>
+                      {oracleCert.price.approximateRate > 0 && (
+                        <span className="text-slate-400">
+                          1 {isStraight ? tokenB.symbol : tokenA.symbol} = {formatNumericPrice(1 / oracleCert.price.approximateRate)} {isStraight ? tokenA.symbol : tokenB.symbol}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                   <div className="flex justify-between">
                     <span>Sources:</span>
                     <span className="text-slate-200 font-mono">

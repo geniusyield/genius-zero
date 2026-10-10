@@ -703,15 +703,22 @@ export const LiquidityView: React.FC<LiquidityViewProps> = ({
                     return (
                       <div className="space-y-1.5 text-xs">
                         {/* Live Oracle Reference Rate */}
-                        <div className="flex items-center justify-between px-1 text-[10px] text-slate-400">
-                          <span className="flex items-center gap-1.5">
+                        <div className="flex items-start justify-between px-1 text-[10px] text-slate-400">
+                          <span className="flex items-center gap-1.5 pt-0.5 shrink-0">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                             Live Oracle:
                           </span>
                           {liveOracle ? (
-                            <span className="font-mono text-emerald-400 font-semibold">
-                              1 {base.symbol} = {formatNumericPrice(liveOracle.price)} {quote.symbol}
-                            </span>
+                            <div className="flex flex-col items-end font-mono text-[10px] space-y-0.5">
+                              <span className="text-emerald-400 font-semibold">
+                                1 {base.symbol} = {formatNumericPrice(liveOracle.price)} {quote.symbol}
+                              </span>
+                              {liveOracle.price > 0 && (
+                                <span className="text-slate-400">
+                                  1 {quote.symbol} = {formatNumericPrice(1 / liveOracle.price)} {base.symbol}
+                                </span>
+                              )}
+                            </div>
                           ) : (
                             <span className="italic text-slate-500">Fetching live rate...</span>
                           )}
