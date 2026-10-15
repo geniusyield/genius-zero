@@ -718,9 +718,13 @@ export async function unstakeVault(
   // (e.g. an activation UTxO sent to an unused derived address) and explicitly
   // collect them as inputs. This forces CIP-30 wallets (like Eternl) to derive
   // and sign with this address's private key as an input spending witness!
+  const net: NetworkType =
+    (lucid.config().network as string).toLowerCase().includes("preprod")
+      ? "preprod"
+      : "mainnet";
   const ownerAddress =
     vault.ownerAddress ||
-    (datumHex ? extractOwnerAddressFromDatum(Data.from(datumHex), "mainnet") : undefined);
+    (datumHex ? extractOwnerAddressFromDatum(Data.from(datumHex), net) : undefined);
 
   if (ownerAddress) {
     try {

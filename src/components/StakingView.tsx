@@ -182,9 +182,23 @@ export const StakingView: React.FC<StakingViewProps> = ({
         rawMsg.includes("missing key hash")
       ) {
         const targetAddr = v.ownerAddress || v.ownerPkh;
-        setErrorMsg(
-          `Signature missing for multi-address staking vault. This vault was created under a derived address (${targetAddr}) with no prior on-chain transaction history, so Eternl cannot sign for it.\n\nTo resolve this in 1 minute:\n1. In Eternl, click "Send".\n2. Send 2 ADA directly to this vault's owner address:\n${targetAddr}\n3. Once confirmed on-chain (~20 seconds), Eternl will automatically discover the address and load its signing key.\n4. Click "Unstake" again — Eternl will now sign successfully!`
-        );
+        let hasFunds = false;
+        try {
+          if (v.ownerAddress && lucid) {
+            const utxos = await lucid.utxosAt(v.ownerAddress);
+            hasFunds = utxos.length > 0;
+          }
+        } catch {}
+
+        if (hasFunds) {
+          setErrorMsg(
+            `Signature missing for multi-address staking vault (${targetAddr}).\n\nFunds are already confirmed on-chain at this address, but Eternl has not indexed it yet.\n\nTo complete unstaking in 30 seconds:\n1. In Eternl: Go to Settings ⚙️ → click "Re-Sync Wallet" (or "Resync") and wait a few seconds for the sync to complete.\n2. In Genius Zero: Disconnect and Reconnect your Eternl wallet.\n3. Click "Unstake" again — Eternl will now sign successfully!`
+          );
+        } else {
+          setErrorMsg(
+            `Signature missing for multi-address staking vault. This vault was created under a derived address (${targetAddr}) with no prior on-chain transaction history, so Eternl cannot sign for it.\n\nTo resolve this in 1 minute:\n1. In Eternl, click "Send".\n2. Send 1 or 2 ADA directly to this vault's owner address:\n${targetAddr}\n3. In Eternl: Go to Settings ⚙️ → click "Re-Sync Wallet" to index the address.\n4. In Genius Zero: Disconnect and Reconnect your wallet, then click "Unstake" again!`
+          );
+        }
       } else {
         setErrorMsg(rawMsg);
       }
