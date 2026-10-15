@@ -19,6 +19,7 @@ import {
   saveCachedOrders,
   pruneCachedOrders,
 } from "./cache";
+export type { ParsedOnChainOrder };
 import { fetchAllLiquidityVaults } from "./liquidity";
 import { toExactRational } from "./oracle";
 import { fetchMinswapPrice } from "./minswap";

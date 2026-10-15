@@ -45,6 +45,47 @@ export async function getLucid(
   const endpoint = DEX_CONSTANTS[network].blockfrostUrl;
   const provider = new Blockfrost(endpoint, apiKey);
 
+  // Intercept getProtocolParameters to catch HTTP errors (e.g. 402 Project Over Limit, 403, 429)
+  // before @lucid-evolution/provider attempts to parse undefined properties into BigInt.
+  const origGetProtocolParameters = provider.getProtocolParameters.bind(provider);
+  provider.getProtocolParameters = async () => {
+    try {
+      const res = await fetch(`${endpoint}/epochs/latest/parameters`, {
+        headers: { project_id: apiKey },
+      });
+      if (!res.ok) {
+        let body: any = null;
+        try {
+          body = await res.json();
+        } catch {}
+        const status = res.status || body?.status_code;
+        const msg = body?.message || body?.error || res.statusText;
+        if (status === 402) {
+          throw new Error(
+            `Blockfrost project over daily limit (50,000 requests). Reset occurs at 00:00 UTC, or configure a new Blockfrost ${network === "mainnet" ? "Mainnet" : "Preprod"} project key in Settings.`
+          );
+        }
+        if (status === 403) {
+          throw new Error(
+            `Invalid Blockfrost project key for ${network}. Please check your API key in Settings.`
+          );
+        }
+        if (status === 429) {
+          throw new Error(
+            `Blockfrost rate limit exceeded (too many requests per second). Please slow down and try again.`
+          );
+        }
+        throw new Error(`Blockfrost API error (${status}): ${msg}`);
+      }
+    } catch (fetchErr: any) {
+      if (fetchErr.message && fetchErr.message.includes("Blockfrost")) {
+        throw fetchErr;
+      }
+      throw new Error(`Failed to reach Blockfrost: ${fetchErr?.message || "Network error"}`);
+    }
+    return origGetProtocolParameters();
+  };
+
   lucidInstance = await Lucid(provider, lucidNetwork);
   patchProviderEvaluation(lucidInstance);
   currentApiKey = apiKey;

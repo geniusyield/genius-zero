@@ -7,6 +7,7 @@ import { UserOrdersView } from "./components/UserOrdersView";
 import { StakingView } from "./components/StakingView";
 import { LiquidityView } from "./components/LiquidityView";
 import { RewardsClaimView } from "./components/RewardsClaimView";
+import { OptionsView } from "./components/OptionsView";
 import { SettingsModal } from "./components/SettingsModal";
 
 import { WalletModal } from "./components/WalletModal";
@@ -14,7 +15,7 @@ import { Key, Cpu, AlertTriangle } from "lucide-react";
 import { DexOrder } from "./types";
 
 function MainContent() {
-  const { settings, error, clearError } = useApp();
+  const { settings, error, clearError, setActivePair } = useApp();
   const [currentTab, setCurrentTab] = useState<AppTab>("trade");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [walletOpen, setWalletOpen] = useState(false);
@@ -166,10 +167,21 @@ function MainContent() {
 
         {/* Tab 4: Rewards Claiming */}
         {currentTab === "rewards" && (
-
           <RewardsClaimView
             onOpenWallet={() => setWalletOpen(true)}
             onOpenSettings={() => setSettingsOpen(true)}
+          />
+        )}
+
+        {/* Tab 5: Covered Options */}
+        {currentTab === "options" && (
+          <OptionsView
+            onOpenWallet={() => setWalletOpen(true)}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onSelectDexPair={(pair) => {
+              setActivePair(pair);
+              setCurrentTab("trade");
+            }}
           />
         )}
       </main>
@@ -182,9 +194,9 @@ function MainContent() {
             <span>Genius Zero — Serverless & Sovereign Client for Genius Yield</span>
           </div>
           <div className="flex items-center gap-4 text-slate-400">
-            <span>Cardano Plutus V2 Contracts</span>
+            <span>Cardano Plutus V2 & V3 Contracts</span>
             <span>•</span>
-            <span>DEX Trading • Staking Vaults • Rewards Claiming</span>
+            <span>DEX Trading • Liquidity • Staking • Covered Options • Rewards</span>
           </div>
         </div>
       </footer>

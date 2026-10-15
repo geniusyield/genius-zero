@@ -174,7 +174,20 @@ export const StakingView: React.FC<StakingViewProps> = ({
       }, 45_000);
     } catch (err: any) {
       console.error("Unstaking error:", err);
-      setErrorMsg(err.message || "Failed to submit unstaking transaction.");
+      const rawMsg = err?.message || String(err) || "Failed to submit unstaking transaction.";
+      if (
+        rawMsg.includes("3101") ||
+        rawMsg.includes("Some signatures are missing") ||
+        rawMsg.includes("MissingKeyWitnesses") ||
+        rawMsg.includes("missing key hash")
+      ) {
+        const targetAddr = v.ownerAddress || v.ownerPkh;
+        setErrorMsg(
+          `Signature missing for multi-address staking vault. This vault was created under a derived address (${targetAddr}) with no prior on-chain transaction history, so Eternl cannot sign for it.\n\nTo resolve this in 1 minute:\n1. In Eternl, click "Send".\n2. Send 2 ADA directly to this vault's owner address:\n${targetAddr}\n3. Once confirmed on-chain (~20 seconds), Eternl will automatically discover the address and load its signing key.\n4. Click "Unstake" again — Eternl will now sign successfully!`
+        );
+      } else {
+        setErrorMsg(rawMsg);
+      }
     } finally {
       setUnstakingRef(null);
     }
@@ -311,14 +324,14 @@ export const StakingView: React.FC<StakingViewProps> = ({
       )}
 
       {errorMsg && (
-        <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-            <span>{errorMsg}</span>
+        <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs flex items-start justify-between">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+            <span className="whitespace-pre-line leading-relaxed">{errorMsg}</span>
           </div>
           <button
             onClick={() => setErrorMsg(null)}
-            className="text-rose-400 hover:text-white text-xs ml-4"
+            className="text-rose-400 hover:text-white text-xs ml-4 shrink-0 font-medium"
           >
             Dismiss
           </button>

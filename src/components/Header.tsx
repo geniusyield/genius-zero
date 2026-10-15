@@ -9,12 +9,13 @@ import {
   ArrowUpDown,
   Loader2,
   Layers,
+  TrendingUp,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { getTradingPairs } from "../config/dex";
 import { formatMinswapRate } from "../services/minswap";
 
-export type AppTab = "trade" | "liquidity" | "staking" | "rewards";
+export type AppTab = "trade" | "liquidity" | "staking" | "rewards" | "options";
 
 
 interface HeaderProps {
@@ -127,6 +128,18 @@ export const Header: React.FC<HeaderProps> = ({
               <Gift className="w-3.5 h-3.5 text-rose-400" />
               <span>Claim Rewards</span>
             </button>
+
+            <button
+              onClick={() => onSelectTab("options")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                currentTab === "options"
+                  ? "bg-[#182234] text-white shadow-sm border border-[#1f2d44]"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Options</span>
+            </button>
           </nav>
 
           {/* Desktop Pair Selector (Hidden on mobile) */}
@@ -148,6 +161,18 @@ export const Header: React.FC<HeaderProps> = ({
                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2.5 py-1">
                       Trading Pairs
                     </div>
+                    {!getTradingPairs(settings.network).some((p) => p.id === activePair.id) && (
+                      <div className="mb-1 pb-1 border-b border-[#1f2d44]">
+                        <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="font-semibold text-white truncate">{activePair.baseToken.symbol}</span>
+                            <span className="text-slate-500">/</span>
+                            <span className="text-slate-400">{activePair.quoteToken.symbol}</span>
+                          </div>
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"></span>
+                        </div>
+                      </div>
+                    )}
                     {getTradingPairs(settings.network).map((p) => (
                       <button
                         key={p.id}
@@ -301,7 +326,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Mobile Sub-Navigation Bar (< md) */}
       <div className="md:hidden mt-2 pt-2 border-t border-[#1f2d44]/70 space-y-2">
         {/* Navigation Tabs */}
-        <nav className="grid grid-cols-4 gap-1 bg-[#0b0e14] p-1 rounded-xl border border-[#1f2d44]">
+        <nav className="grid grid-cols-5 gap-1 bg-[#0b0e14] p-1 rounded-xl border border-[#1f2d44]">
           <button
             onClick={() => onSelectTab("trade")}
             className={`flex flex-col sm:flex-row items-center justify-center gap-1 py-1.5 px-1 rounded-lg text-[11px] font-bold transition-all ${
@@ -349,6 +374,18 @@ export const Header: React.FC<HeaderProps> = ({
             <Gift className="w-3.5 h-3.5 text-rose-400" />
             <span>Rewards</span>
           </button>
+
+          <button
+            onClick={() => onSelectTab("options")}
+            className={`flex flex-col sm:flex-row items-center justify-center gap-1 py-1.5 px-1 rounded-lg text-[11px] font-bold transition-all ${
+              currentTab === "options"
+                ? "bg-[#182234] text-white shadow-sm border border-[#1f2d44]"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Options</span>
+          </button>
         </nav>
 
         {/* Mobile Trade Controls (Pair Selector + Refresh + Minswap Preview) */}
@@ -375,6 +412,18 @@ export const Header: React.FC<HeaderProps> = ({
                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2.5 py-1">
                       Select Trading Pair
                     </div>
+                    {!getTradingPairs(settings.network).some((p) => p.id === activePair.id) && (
+                      <div className="mb-1 pb-1 border-b border-[#1f2d44]">
+                        <div className="flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="font-semibold text-white truncate">{activePair.baseToken.symbol}</span>
+                            <span className="text-slate-500">/</span>
+                            <span className="text-slate-400">{activePair.quoteToken.symbol}</span>
+                          </div>
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"></span>
+                        </div>
+                      </div>
+                    )}
                     {getTradingPairs(settings.network).map((p) => (
                       <button
                         key={p.id}

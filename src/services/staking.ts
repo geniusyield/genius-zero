@@ -5,6 +5,7 @@ import {
   Constr,
   getAddressDetails,
   credentialToRewardAddress,
+  credentialToAddress,
 } from "@lucid-evolution/lucid";
 import { NetworkType, FetchProgress } from "../types";
 import { DEX_CONSTANTS } from "../config/dex";
@@ -23,6 +24,7 @@ export interface StakingVault {
     outputIndex: number;
   };
   ownerPkh: string;
+  ownerAddress?: string;
   project: string; // "GENS" | "GENSX" | "tGENS" | other
   stakedTokenUnit: string;
   stakedAmount: bigint;
@@ -31,6 +33,50 @@ export interface StakingVault {
   isUnlocked: boolean;
   isUserOwned: boolean;
   rawDatumHex?: string;
+}
+
+/**
+ * Extracts the full Bech32 owner address from the staking datum fields if present.
+ */
+export function extractOwnerAddressFromDatum(
+  datum: any,
+  network: NetworkType
+): string | undefined {
+  try {
+    if (!datum || typeof datum !== "object" || !Array.isArray(datum.fields)) {
+      return undefined;
+    }
+    const ownerPkh = String(datum.fields[0]).toLowerCase();
+    if (!ownerPkh) return undefined;
+
+    const net = network === "mainnet" ? "Mainnet" : "Preprod";
+    const addrField = datum.fields[1];
+    let stakePkh: string | undefined;
+
+    if (addrField && typeof addrField === "object" && Array.isArray(addrField.fields)) {
+      const maybeStake = addrField.fields[1];
+      if (maybeStake && maybeStake.index === 0 && Array.isArray(maybeStake.fields)) {
+        const stakingHash = maybeStake.fields[0];
+        if (stakingHash && stakingHash.index === 0 && Array.isArray(stakingHash.fields)) {
+          const cred = stakingHash.fields[0];
+          if (cred && cred.index === 0 && Array.isArray(cred.fields)) {
+            const h = cred.fields[0];
+            if (typeof h === "string") stakePkh = h.toLowerCase();
+          } else if (typeof cred === "string") {
+            stakePkh = cred.toLowerCase();
+          }
+        }
+      }
+    }
+
+    return credentialToAddress(
+      net,
+      { type: "Key", hash: ownerPkh },
+      stakePkh ? { type: "Key", hash: stakePkh } : undefined
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -111,6 +157,7 @@ async function parseStakingUtxo(
     }
 
     let ownerPkh = "";
+    let ownerAddress: string | undefined;
     let lockedUntilMs: number | undefined;
     let rawDatumHex: string | undefined;
 
@@ -127,6 +174,7 @@ async function parseStakingUtxo(
         const datum = Data.from(datumHex) as any;
         if (datum && typeof datum === "object" && "fields" in datum && Array.isArray(datum.fields)) {
           ownerPkh = String(datum.fields[0]).toLowerCase();
+          ownerAddress = extractOwnerAddressFromDatum(datum, network);
 
           const lockField = datum.fields[2];
           if (lockField && typeof lockField === "object" && "index" in lockField && lockField.index === 0) {
@@ -149,6 +197,7 @@ async function parseStakingUtxo(
         outputIndex: utxo.outputIndex,
       },
       ownerPkh,
+      ownerAddress,
       project,
       stakedTokenUnit,
       stakedAmount,
@@ -268,6 +317,7 @@ export function parseRawBlockfrostUtxo(
   }
 
   let ownerPkh = "";
+  let ownerAddress: string | undefined;
   let lockedUntilMs: number | undefined;
   let rawDatumHex: string | undefined = raw.inline_datum || undefined;
 
@@ -276,6 +326,7 @@ export function parseRawBlockfrostUtxo(
       const datum = Data.from(raw.inline_datum) as any;
       if (datum && typeof datum === "object" && "fields" in datum && Array.isArray(datum.fields)) {
         ownerPkh = String(datum.fields[0]).toLowerCase();
+        ownerAddress = extractOwnerAddressFromDatum(datum, network);
         const lockField = datum.fields[2];
         if (lockField && typeof lockField === "object" && "index" in lockField && lockField.index === 0) {
           const timeVal = lockField.fields?.[0];
@@ -295,6 +346,7 @@ export function parseRawBlockfrostUtxo(
       outputIndex: raw.output_index,
     },
     ownerPkh,
+    ownerAddress,
     project,
     stakedTokenUnit,
     stakedAmount,
@@ -556,6 +608,7 @@ export async function fetchUserStakingVaults(
                 const datum = Data.from(datumHex) as any;
                 if (datum?.fields && Array.isArray(datum.fields)) {
                   uv.ownerPkh = String(datum.fields[0]).toLowerCase();
+                  uv.ownerAddress = extractOwnerAddressFromDatum(datum, network);
                   const lockField = datum.fields[2];
                   if (lockField?.index === 0 && lockField.fields?.[0] !== undefined) {
                     uv.lockedUntilMs = Number(lockField.fields[0]);
@@ -660,6 +713,25 @@ export async function unstakeVault(
     .newTx()
     .collectFrom([utxoWithDatum], Data.void()) // Redeemer is () (unit)
     .attach.SpendingValidator(STAKING_VALIDATOR);
+
+  // If the vault has an ownerAddress, check if there are UTxOs at that address
+  // (e.g. an activation UTxO sent to an unused derived address) and explicitly
+  // collect them as inputs. This forces CIP-30 wallets (like Eternl) to derive
+  // and sign with this address's private key as an input spending witness!
+  const ownerAddress =
+    vault.ownerAddress ||
+    (datumHex ? extractOwnerAddressFromDatum(Data.from(datumHex), "mainnet") : undefined);
+
+  if (ownerAddress) {
+    try {
+      const ownerUtxos = await lucid.utxosAt(ownerAddress);
+      if (ownerUtxos.length > 0) {
+        tx = tx.collectFrom(ownerUtxos);
+      }
+    } catch (e) {
+      console.warn("Could not query or collect owner address UTxOs:", e);
+    }
+  }
 
   if (ownerPkh) {
     tx = tx.addSignerKey(ownerPkh); // Enforces signature from original staking address PKH

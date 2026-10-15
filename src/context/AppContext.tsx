@@ -56,6 +56,7 @@ interface AppContextType {
   minswapPrice: MinswapPriceInfo | null;
   loadingMinswapPrice: boolean;
   refreshMinswapPrice: () => Promise<void>;
+  refreshWalletBalances: () => Promise<void>;
   actionPending: boolean;
   actionMessage: string | null;
   error: string | null;
@@ -872,6 +873,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         minswapPrice,
         loadingMinswapPrice,
         refreshMinswapPrice,
+        refreshWalletBalances,
         actionPending,
         actionMessage,
         error,

@@ -10,6 +10,10 @@
     "test:contracts": "tsx scripts/test-contracts-config.ts",
     "test:dex:preprod": "node scripts/patch-lucid.js && vite-node scripts/test-dex-preprod.ts",
     "test:staking:preprod": "node scripts/patch-lucid.js && vite-node scripts/test-staking-preprod.ts",
+    "test:options:ui": "tsx scripts/test-options-ui.ts",
+    "test:options:preprod": "node scripts/patch-lucid.js && vite-node scripts/test-options-preprod.ts",
+    "test:options:mainnet": "node scripts/patch-lucid.js && vite-node scripts/test-options-mainnet.ts",
+    "test:options:marketplace": "node scripts/patch-lucid.js && vite-node scripts/test-options-marketplace-preprod.ts",
     "test": "npm run test:contracts"
   },
   "dependencies": {
