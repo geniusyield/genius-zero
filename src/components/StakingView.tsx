@@ -176,27 +176,30 @@ export const StakingView: React.FC<StakingViewProps> = ({
       console.error("Unstaking error:", err);
       const rawMsg = err?.message || String(err) || "Failed to submit unstaking transaction.";
       if (
+        rawMsg.includes("MissingRequiredSigner:") ||
         rawMsg.includes("3101") ||
         rawMsg.includes("Some signatures are missing") ||
         rawMsg.includes("MissingKeyWitnesses") ||
         rawMsg.includes("missing key hash")
       ) {
         const targetAddr = v.ownerAddress || v.ownerPkh;
-        let hasFunds = false;
-        try {
-          if (v.ownerAddress && lucid) {
-            const utxos = await lucid.utxosAt(v.ownerAddress);
-            hasFunds = utxos.length > 0;
-          }
-        } catch {}
+        let hasFunds = rawMsg.includes("WALLET_EXCLUDES_OWNER_UTXOS") || rawMsg.includes("WALLET_SEES_OWNER_UTXOS");
+        if (!hasFunds) {
+          try {
+            if (v.ownerAddress && lucid) {
+              const utxos = await lucid.utxosAt(v.ownerAddress);
+              hasFunds = utxos.length > 0;
+            }
+          } catch {}
+        }
 
         if (hasFunds) {
           setErrorMsg(
-            `Signature missing for multi-address staking vault (${targetAddr}).\n\nFunds are already confirmed on-chain at this address, but Eternl has not indexed it yet.\n\nTo complete unstaking in 30 seconds:\n1. In Eternl: Go to Settings ⚙️ → click "Re-Sync Wallet" (or "Resync") and wait a few seconds for the sync to complete.\n2. In Genius Zero: Disconnect and Reconnect your Eternl wallet.\n3. Click "Unstake" again — Eternl will now sign successfully!`
+            `Signature missing for vault owner key (${v.ownerPkh}) at address:\n${targetAddr}\n\nYour connected wallet signed the transaction fee/collateral, but did NOT include a witness for the vault's owner key.\n\nWhy this happens in Eternl:\n• Eternl only scans 25 external addresses at a time (0/0..0/24). If this address is beyond a gap of 20 unused addresses (or belongs to a sub-account), Eternl classifies its UTxOs under Account → UTxO List as "External funds, but earning rewards" and refuses to sign with its key.\n\nHow to unstake immediately:\n1. Restore your wallet's 24-word recovery phrase in Lace Wallet (Lace scans all on-chain account addresses up to index 10,000 automatically), connect Lace to Genius Zero, and click "Unstake"; OR\n2. If you created this stake using a secondary account/sub-account in Eternl, switch to that account in Eternl and click "Unstake".`
           );
         } else {
           setErrorMsg(
-            `Signature missing for multi-address staking vault. This vault was created under a derived address (${targetAddr}) with no prior on-chain transaction history, so Eternl cannot sign for it.\n\nTo resolve this in 1 minute:\n1. In Eternl, click "Send".\n2. Send 1 or 2 ADA directly to this vault's owner address:\n${targetAddr}\n3. In Eternl: Go to Settings ⚙️ → click "Re-Sync Wallet" to index the address.\n4. In Genius Zero: Disconnect and Reconnect your wallet, then click "Unstake" again!`
+            `Signature missing for multi-address staking vault. This vault was created under a derived address (${targetAddr}) with no prior on-chain transaction history.\n\nTo resolve this:\n1. Send 1–2 ADA to the vault's owner address:\n${targetAddr}\n2. In Eternl: Go to Settings ⚙️ → click "Re-Sync Wallet", then reconnect and click "Unstake".\n3. If Eternl still classifies the address as "External funds, but earning rewards" (due to Eternl's 20-address gap limit), restore your recovery phrase in Lace Wallet, connect Lace to Genius Zero, and click "Unstake".`
           );
         }
       } else {

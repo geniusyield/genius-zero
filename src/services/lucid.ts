@@ -254,6 +254,30 @@ export async function connectWallet(
     // walletApi.getUsedAddresses might not be supported on all providers
   }
 
+  // Also include payment key hashes from unused derived addresses (e.g. Eternl 0/k receive keys)
+  try {
+    if (typeof walletApi.getUnusedAddresses === "function") {
+      const rawUnused: string[] = await walletApi.getUnusedAddresses();
+      if (Array.isArray(rawUnused) && rawUnused.length > 0) {
+        for (const raw of rawUnused) {
+          try {
+            const bech32 = toAddressBech32(raw);
+            if (bech32) {
+              const details = getAddressDetails(bech32);
+              if (details.paymentCredential?.hash) {
+                pkhsSet.add(details.paymentCredential.hash.toLowerCase());
+              }
+            }
+          } catch {
+            // ignore individual address decode failure
+          }
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
   try {
     const rawRewards: string[] = await walletApi.getRewardAddresses();
     if (Array.isArray(rawRewards) && rawRewards.length > 0) {

@@ -3,6 +3,7 @@ import {
   UTxO,
   Data,
   Constr,
+  CML,
   getAddressDetails,
   credentialToRewardAddress,
   credentialToAddress,
@@ -115,11 +116,18 @@ export async function runWithConcurrency<T, R>(
 /**
  * Constructs a Plutus-compliant StakeDatum for Genius Yield staking script.
  */
-export function makeStakeDatum(ownerPkh: string, lockUntilMs?: number | null): Constr<any> {
+export function makeStakeDatum(
+  ownerPkh: string,
+  lockUntilMs?: number | null,
+  stakePkh?: string | null
+): Constr<any> {
   const ownerKey = ownerPkh;
+  const stakeCredField = stakePkh
+    ? new Constr(0, [new Constr(0, [new Constr(0, [stakePkh])])])
+    : new Constr(1, []); // Enterprise address (no staking credential)
   const ownerAddr = new Constr(0, [
     new Constr(0, [ownerPkh]),
-    new Constr(1, []), // Enterprise address (no staking credential)
+    stakeCredField,
   ]);
   const lockedUntil = lockUntilMs
     ? new Constr(0, [BigInt(lockUntilMs)])
@@ -414,59 +422,110 @@ export async function fetchUserStakingVaults(
     }
 
     // 2. DISCOVER USER-OWNED VAULTS FROM WALLET TRANSACTION HISTORY
-    const addressesToScan: string[] = [];
-    const seenAddrs = new Set<string>();
-    for (const addr of userAddresses) {
-      if (addr && !seenAddrs.has(addr)) {
-        seenAddrs.add(addr);
-        addressesToScan.push(addr);
+    // Discover all addresses and payment credentials under the wallet's stake account (Eternl/Lace multi-address support)
+    let stakeAddress = options?.rewardAddress;
+    if (!stakeAddress && userAddresses.length > 0) {
+      for (const uAddr of userAddresses) {
+        try {
+          const details = getAddressDetails(uAddr);
+          if (details.stakeCredential) {
+            const net = network === "mainnet" ? "Mainnet" : "Preprod";
+            stakeAddress = credentialToRewardAddress(net, details.stakeCredential);
+            break;
+          }
+        } catch {}
       }
     }
 
-    // Discover all addresses and payment credentials under the wallet's stake account (Eternl multi-address support)
-    let stakeAddress = options?.rewardAddress;
-    if (!stakeAddress && addressesToScan.length > 0) {
-      try {
-        const details = getAddressDetails(addressesToScan[0]);
-        if (details.stakeCredential) {
-          const net = network === "mainnet" ? "Mainnet" : "Preprod";
-          stakeAddress = credentialToRewardAddress(net, details.stakeCredential);
-        }
-      } catch {}
-    }
-
+    const accountKeyAddrs = new Set<string>();
     if (stakeAddress) {
       try {
-        const accResp = await fetch(
-          `${constants.blockfrostUrl}/accounts/${stakeAddress}/addresses?count=100&_t=${Date.now()}`,
-          {
-            headers: { project_id: blockfrostApiKey },
-            cache: "no-store",
-          }
-        );
-        if (accResp.ok) {
-          const accAddrs: { address: string }[] = await accResp.json();
-          if (Array.isArray(accAddrs)) {
-            for (const item of accAddrs) {
-              if (item.address) {
-                if (!seenAddrs.has(item.address)) {
-                  seenAddrs.add(item.address);
-                  addressesToScan.push(item.address);
-                }
-                try {
-                  const details = getAddressDetails(item.address);
-                  if (details.paymentCredential?.hash) {
-                    normalizedUserPkhs.add(details.paymentCredential.hash.toLowerCase());
-                  }
-                } catch {}
-              }
+        let accPage = 1;
+        while (accPage <= 3) {
+          const accResp = await fetch(
+            `${constants.blockfrostUrl}/accounts/${stakeAddress}/addresses?count=100&page=${accPage}&_t=${Date.now()}`,
+            {
+              headers: { project_id: blockfrostApiKey },
+              cache: "no-store",
             }
+          );
+          if (!accResp.ok) break;
+          const accAddrs: { address: string }[] = await accResp.json();
+          if (!Array.isArray(accAddrs) || accAddrs.length === 0) break;
+
+          for (const item of accAddrs) {
+            if (!item.address) continue;
+            try {
+              const details = getAddressDetails(item.address);
+              // Only include Key credentials (exclude Franken-script addresses for DEX orders/contracts)
+              if (details.paymentCredential?.type === "Key" && details.paymentCredential.hash) {
+                normalizedUserPkhs.add(details.paymentCredential.hash.toLowerCase());
+                accountKeyAddrs.add(item.address);
+              }
+            } catch {}
           }
+
+          if (accAddrs.length < 100) break;
+          accPage++;
         }
       } catch (err) {
         console.warn("Could not query account addresses from Blockfrost:", err);
       }
     }
+
+    const addressesToScan: string[] = [];
+    const seenAddrs = new Set<string>();
+
+    // Add wallet addresses first (filtering out unused enterprise addr1v... duplicates when stake account is known)
+    for (let i = 0; i < userAddresses.length; i++) {
+      const addr = userAddresses[i];
+      if (!addr || seenAddrs.has(addr)) continue;
+      try {
+        const details = getAddressDetails(addr);
+        if (details.paymentCredential?.type !== "Key") continue;
+        if (details.paymentCredential.hash) {
+          normalizedUserPkhs.add(details.paymentCredential.hash.toLowerCase());
+        }
+        // If we have the on-chain account address set from Blockfrost, skip addresses that have 0 on-chain txs
+        // (such as the 60+ unused enterprise addr1v... addresses returned by Eternl's getUsedAddresses())
+        if (accountKeyAddrs.size > 0 && !accountKeyAddrs.has(addr)) {
+          continue;
+        }
+        seenAddrs.add(addr);
+        addressesToScan.push(addr);
+      } catch {}
+    }
+
+    // Add any remaining on-chain Key addresses under the stake account
+    for (const addr of accountKeyAddrs) {
+      if (!seenAddrs.has(addr)) {
+        seenAddrs.add(addr);
+        addressesToScan.push(addr);
+      }
+    }
+
+    // Fallback if accountKeyAddrs was empty and all userAddresses were filtered
+    if (addressesToScan.length === 0 && userAddresses.length > 0 && userAddresses[0]) {
+      addressesToScan.push(userAddresses[0]);
+    }
+
+    const fetchAddrTxPage = async (addr: string, pageNum: number): Promise<{ tx_hash: string }[]> => {
+      const url = `${constants.blockfrostUrl}/addresses/${addr}/transactions?count=100&page=${pageNum}&order=desc&_t=${Date.now()}`;
+      let res = await fetch(url, {
+        headers: { project_id: blockfrostApiKey },
+        cache: "no-store",
+      });
+      if (res.status === 429) {
+        await new Promise((r) => setTimeout(r, 500));
+        res = await fetch(url, {
+          headers: { project_id: blockfrostApiKey },
+          cache: "no-store",
+        });
+      }
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    };
 
     if (addressesToScan.length > 0) {
       onProgress?.({
@@ -476,76 +535,83 @@ export async function fetchUserStakingVaults(
         itemType: "Addresses",
       });
 
-      // Primary address: deep scan (up to 30 pages = 3,000 transactions)
-      // Secondary addresses: standard scan (up to 5 pages = 500 transactions each)
-      for (let addrIdx = 0; addrIdx < addressesToScan.length; addrIdx++) {
+      const recordTxMatches = (txList: { tx_hash: string }[]) => {
+        for (const tx of txList) {
+          if (scriptTxHashes.has(tx.tx_hash)) {
+            const matchingUtxos = rawUtxosByTxHash.get(tx.tx_hash) || [];
+            for (const m of matchingUtxos) {
+              userCandidateRefs.add(`${m.tx_hash}#${m.output_index}`);
+            }
+          }
+        }
+      };
+
+      // Step 2a: Fetch page 1 (newest 100 txs, order=desc) in small batches of 5 addresses.
+      // Secondary addresses almost always have < 100 txs, so fetching page 1 first avoids
+      // firing 4 unnecessary 404 requests per address and prevents Blockfrost 429 rate-limiting.
+      const addressesWithMorePages: string[] = [];
+      const addrBatchSize = 5;
+
+      for (let i = 0; i < addressesToScan.length; i += addrBatchSize) {
         if (options?.abortSignal?.aborted) break;
-        const addr = addressesToScan[addrIdx];
-        const maxPages = addrIdx === 0 ? 30 : 5;
-        const countPerPage = 100;
-        const batchSize = 5;
-        let page = 1;
+        const batchAddrs = addressesToScan.slice(i, i + addrBatchSize);
+        const page1Results = await Promise.all(
+          batchAddrs.map((addr) => fetchAddrTxPage(addr, 1))
+        );
+
+        for (let j = 0; j < batchAddrs.length; j++) {
+          const txList = page1Results[j];
+          recordTxMatches(txList);
+          if (txList.length === 100) {
+            addressesWithMorePages.push(batchAddrs[j]);
+          }
+        }
+
+        onProgress?.({
+          current: Math.min(i + addrBatchSize, addressesToScan.length),
+          total: addressesToScan.length,
+          stage:
+            userCandidateRefs.size > 0
+              ? `Found ${userCandidateRefs.size} of your staking vaults...`
+              : `Scanning wallet history (${Math.min(i + addrBatchSize, addressesToScan.length)}/${addressesToScan.length} addresses)...`,
+          itemType: "Addresses",
+        });
+      }
+
+      // Step 2b: For any high-activity address with >= 100 txs (regardless of its index in addressesToScan),
+      // scan deeper pages (order=desc, up to 15 pages = 1,500 most recent transactions).
+      for (const addr of addressesWithMorePages) {
+        if (options?.abortSignal?.aborted) break;
+        const maxPages = 15;
+        const pageBatchSize = 3;
+        let page = 2;
 
         while (page <= maxPages) {
           if (options?.abortSignal?.aborted) break;
           const pageNumbers: number[] = [];
-          for (let i = 0; i < batchSize && page + i <= maxPages; i++) {
+          for (let i = 0; i < pageBatchSize && page + i <= maxPages; i++) {
             pageNumbers.push(page + i);
           }
 
-          try {
-            const pagePromises = pageNumbers.map((p) =>
-              fetch(
-                `${constants.blockfrostUrl}/addresses/${addr}/transactions?count=${countPerPage}&page=${p}&_t=${Date.now()}`,
-                {
-                  headers: { project_id: blockfrostApiKey },
-                  cache: "no-store",
-                }
-              ).then(async (res) => {
-                if (!res.ok) return [];
-                return (await res.json()) as { tx_hash: string }[];
-              })
-            );
+          const batchResults = await Promise.all(
+            pageNumbers.map((p) => fetchAddrTxPage(addr, p))
+          );
+          let reachedEnd = false;
 
-            const batchResults = await Promise.all(pagePromises);
-            let reachedEnd = false;
-
-            for (const txList of batchResults) {
-              if (!Array.isArray(txList) || txList.length === 0) {
-                reachedEnd = true;
-                break;
-              }
-
-              for (const tx of txList) {
-                if (scriptTxHashes.has(tx.tx_hash)) {
-                  const matchingUtxos = rawUtxosByTxHash.get(tx.tx_hash) || [];
-                  for (const m of matchingUtxos) {
-                    userCandidateRefs.add(`${m.tx_hash}#${m.output_index}`);
-                  }
-                }
-              }
-
-              if (txList.length < countPerPage) {
-                reachedEnd = true;
-                break;
-              }
+          for (const txList of batchResults) {
+            if (txList.length === 0) {
+              reachedEnd = true;
+              break;
             }
-
-            if (userCandidateRefs.size > 0) {
-              onProgress?.({
-                current: userCandidateRefs.size,
-                total: rawUtxos.length,
-                stage: `Found ${userCandidateRefs.size} of your staking vaults...`,
-                itemType: "Vaults",
-              });
+            recordTxMatches(txList);
+            if (txList.length < 100) {
+              reachedEnd = true;
+              break;
             }
-
-            if (reachedEnd) break;
-            page += batchSize;
-          } catch (err) {
-            console.warn("Error scanning transactions for address:", addr, err);
-            break;
           }
+
+          if (reachedEnd) break;
+          page += pageBatchSize;
         }
       }
     }
@@ -585,13 +651,15 @@ export async function fetchUserStakingVaults(
         if (matchRaw && matchRaw.data_hash) {
           try {
             const datumHex = await getOrFetchDatum(matchRaw.data_hash, async () => {
-              // 1. Direct Blockfrost CBOR endpoint
+              // 1. Direct Blockfrost CBOR endpoint (with 429 retry)
               if (blockfrostApiKey) {
                 try {
-                  const resp = await fetch(
-                    `${constants.blockfrostUrl}/scripts/datum/${matchRaw.data_hash}/cbor`,
-                    { headers: { project_id: blockfrostApiKey } }
-                  );
+                  const datumUrl = `${constants.blockfrostUrl}/scripts/datum/${matchRaw.data_hash}/cbor`;
+                  let resp = await fetch(datumUrl, { headers: { project_id: blockfrostApiKey } });
+                  if (resp.status === 429) {
+                    await new Promise((r) => setTimeout(r, 500));
+                    resp = await fetch(datumUrl, { headers: { project_id: blockfrostApiKey } });
+                  }
                   if (resp.ok) {
                     const data = await resp.json();
                     if (data?.cbor) return data.cbor;
@@ -609,6 +677,9 @@ export async function fetchUserStakingVaults(
                 if (datum?.fields && Array.isArray(datum.fields)) {
                   uv.ownerPkh = String(datum.fields[0]).toLowerCase();
                   uv.ownerAddress = extractOwnerAddressFromDatum(datum, network);
+                  if (uv.ownerPkh && normalizedUserPkhs.has(uv.ownerPkh)) {
+                    uv.isUserOwned = true;
+                  }
                   const lockField = datum.fields[2];
                   if (lockField?.index === 0 && lockField.fields?.[0] !== undefined) {
                     uv.lockedUntilMs = Number(lockField.fields[0]);
@@ -670,7 +741,7 @@ export async function fetchUserStakingVaults(
 /**
  * Builds and submits the on-chain unstake transaction.
  * Correctly adds `sdOwnerKey` witness requirement so multi-address wallets
- * (like Eternl) can sign on behalf of the original staking derivation index.
+ * (like Eternl and Lace) can sign on behalf of the original staking derivation index.
  */
 export async function unstakeVault(
   lucid: LucidEvolution,
@@ -704,7 +775,7 @@ export async function unstakeVault(
   if (!ownerPkh && datumHex) {
     try {
       const parsed = Data.from(datumHex) as any;
-      ownerPkh = String(parsed?.fields?.[0] || "");
+      ownerPkh = String(parsed?.fields?.[0] || "").toLowerCase();
     } catch {}
   }
 
@@ -714,10 +785,6 @@ export async function unstakeVault(
     .collectFrom([utxoWithDatum], Data.void()) // Redeemer is () (unit)
     .attach.SpendingValidator(STAKING_VALIDATOR);
 
-  // If the vault has an ownerAddress, check if there are UTxOs at that address
-  // (e.g. an activation UTxO sent to an unused derived address) and explicitly
-  // collect them as inputs. This forces CIP-30 wallets (like Eternl) to derive
-  // and sign with this address's private key as an input spending witness!
   const net: NetworkType =
     (lucid.config().network as string).toLowerCase().includes("preprod")
       ? "preprod"
@@ -726,11 +793,29 @@ export async function unstakeVault(
     vault.ownerAddress ||
     (datumHex ? extractOwnerAddressFromDatum(Data.from(datumHex), net) : undefined);
 
+  let onChainOwnerUtxos: UTxO[] = [];
+  let walletSeesOwnerUtxos = false;
+
   if (ownerAddress) {
     try {
-      const ownerUtxos = await lucid.utxosAt(ownerAddress);
+      const [ownerUtxos, walletUtxos] = await Promise.all([
+        lucid.utxosAt(ownerAddress),
+        lucid.wallet().getUtxos().catch(() => [] as UTxO[]),
+      ]);
+      onChainOwnerUtxos = ownerUtxos;
       if (ownerUtxos.length > 0) {
-        tx = tx.collectFrom(ownerUtxos);
+        const ownerOutRefs = new Set(
+          ownerUtxos.map((u) => `${u.txHash}#${u.outputIndex}`)
+        );
+        walletSeesOwnerUtxos = walletUtxos.some((u) =>
+          ownerOutRefs.has(`${u.txHash}#${u.outputIndex}`)
+        );
+        // Only collect ownerUtxos if the connected wallet recognizes them in walletApi.getUtxos().
+        // If Eternl classifies them as "epkosk" (external payment key, owned stake key),
+        // walletApi.getUtxos() excludes them and collecting them would add an unowned input.
+        if (walletSeesOwnerUtxos) {
+          tx = tx.collectFrom(ownerUtxos);
+        }
       }
     } catch (e) {
       console.warn("Could not query or collect owner address UTxOs:", e);
@@ -761,6 +846,42 @@ export async function unstakeVault(
   const completedTx = await tx.complete();
   const signedTx = await completedTx.sign.withWallet().complete();
   const cbor = signedTx.toCBOR();
+
+  // Verify before submission that the connected wallet actually produced a VKey witness
+  // for `ownerPkh`. Because Lucid calls `api.signTx(cbor, true)` (partialSign = true),
+  // a wallet that does not hold `ownerPkh` in its active account keys will silently omit
+  // the signature for `ownerPkh` and only sign for the fee/collateral input.
+  if (ownerPkh) {
+    let missingOwnerSigError: Error | null = null;
+    try {
+      const cmlTx = CML.Transaction.from_cbor_hex(cbor);
+      const vkeys = cmlTx.witness_set().vkeywitnesses();
+      const signedPkhs = new Set<string>();
+      if (vkeys) {
+        for (let i = 0; i < vkeys.len(); i++) {
+          const w = vkeys.get(i);
+          signedPkhs.add(w.vkey().hash().to_hex().toLowerCase());
+        }
+      }
+      if (!signedPkhs.has(ownerPkh.toLowerCase())) {
+        const signedList = Array.from(signedPkhs).join(", ") || "none";
+        const utxoDiag =
+          onChainOwnerUtxos.length > 0 && !walletSeesOwnerUtxos
+            ? "WALLET_EXCLUDES_OWNER_UTXOS"
+            : onChainOwnerUtxos.length > 0
+            ? "WALLET_SEES_OWNER_UTXOS"
+            : "NO_OWNER_UTXOS";
+        missingOwnerSigError = new Error(
+          `MissingRequiredSigner: Wallet signed with [${signedList}], but did not sign for vault owner key ${ownerPkh} (${ownerAddress || "unknown address"}) [${utxoDiag}].`
+        );
+      }
+    } catch (verifyErr: any) {
+      console.warn("Could not inspect signedTx witnesses pre-submit:", verifyErr);
+    }
+    if (missingOwnerSigError) {
+      throw missingOwnerSigError;
+    }
+  }
 
   let txHash = "";
   try {
