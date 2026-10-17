@@ -165,16 +165,46 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
         throw new Error("Could not determine stake address from connected wallet.");
       }
 
-      const usedAddrs =
+      let usedAddrs =
         wallet.usedAddresses && wallet.usedAddresses.length > 0
           ? wallet.usedAddresses
           : [wallet.address];
+      let changeAddr = wallet.address;
+
+      // Prefer a single funded address (>= 3 ADA) from the wallet's UTxOs so the claim
+      // microservice only needs to query 1 address and use 1 payment key witness.
+      if (lucid) {
+        try {
+          const walletUtxos = await lucid.wallet().getUtxos();
+          const lovelaceByAddr = new Map<string, bigint>();
+          for (const u of walletUtxos) {
+            if (u.address) {
+              const cur = lovelaceByAddr.get(u.address) || 0n;
+              lovelaceByAddr.set(u.address, cur + (u.assets?.lovelace || 0n));
+            }
+          }
+          let bestAddr: string | null = null;
+          let bestLovelace = 0n;
+          for (const [addr, lov] of lovelaceByAddr.entries()) {
+            if (lov >= 3_000_000n && lov > bestLovelace) {
+              bestAddr = addr;
+              bestLovelace = lov;
+            }
+          }
+          if (bestAddr) {
+            usedAddrs = [bestAddr];
+            changeAddr = bestAddr;
+          }
+        } catch {
+          // fallback to wallet.usedAddresses / wallet.address
+        }
+      }
 
       const res = await prepareClaimTransaction({
         network: settings.network,
         stakeAddress: stakeAddr,
         userAddresses: usedAddrs,
-        changeAddress: wallet.address,
+        changeAddress: changeAddr,
         claimServiceUrl: constants.claimServiceUrl,
       });
 
@@ -214,15 +244,9 @@ export const RewardsClaimView: React.FC<RewardsClaimViewProps> = ({
           if (p.userClaimableGens > 0n || p.userClaimableLovelace > 0n || p.userClaimableTokens.length > 0) {
             try {
               localStorage.setItem(
-                `genius_zero_claimed_${userStakeKeyHash.toLowerCase()}_${p.utxoRef.txHash}#${p.utxoRef.outputIndex}`,
+                `genius_zero_claimed_v2_${userStakeKeyHash.toLowerCase()}_${p.utxoRef.txHash}#${p.utxoRef.outputIndex}`,
                 res.txHash
               );
-              if (p.epochDate) {
-                localStorage.setItem(
-                  `genius_zero_claimed_${userStakeKeyHash.toLowerCase()}_${p.poolType}_${p.epochDate}`,
-                  res.txHash
-                );
-              }
             } catch {}
           }
         });

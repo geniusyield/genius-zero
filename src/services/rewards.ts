@@ -283,25 +283,35 @@ export async function fetchActiveRewardPools(
       return b.amount > a.amount ? 1 : -1;
     });
 
-    // Check if user has already withdrawn rewards from this pool
-    let userClaimed = false;
-
-    // 1. Check local session storage first
+    // Check if user has already withdrawn rewards from this exact UTxO in this browser session
+    let localSessionClaimed = false;
     if (userSkh) {
       try {
-        const localKey = `genius_zero_claimed_${userSkh.toLowerCase()}_${utxo.txHash}#${utxo.outputIndex}`;
-        const localKeyEpoch = epochDate ? `genius_zero_claimed_${userSkh.toLowerCase()}_${poolType}_${epochDate}` : null;
-        if (localStorage.getItem(localKey) || (localKeyEpoch && localStorage.getItem(localKeyEpoch))) {
-          userClaimed = true;
+        const localKey = `genius_zero_claimed_v2_${userSkh.toLowerCase()}_${utxo.txHash}#${utxo.outputIndex}`;
+        if (localStorage.getItem(localKey)) {
+          localSessionClaimed = true;
         }
       } catch {}
     }
 
-    // 2. Traverse on-chain datum chain to detect if user has withdrawn
-    if (!userClaimed && userSkh && utxo.datumHash && blockfrostApiKey) {
+    const snapshot = poolType === "Vault Staking" ? vsSnapshot : aySnapshot;
+    let userAlloc: Record<string, number> =
+      snapshot && userSkh && snapshot.rewards[userSkh] ? { ...snapshot.rewards[userSkh] } : {};
+    let lastWithdrawnAlloc: Record<string, number> | null = null;
+    let userClaimed = false;
+
+    // Traverse on-chain datum chain ONLY back to snapshot.datumHash, then replay post-snapshot
+    // TopUp and Withdraw actions in chronological order (oldest -> newest).
+    if (userSkh && utxo.datumHash && blockfrostApiKey && snapshot?.datumHash) {
+      type PostSnapshotStep =
+        | { kind: "withdraw"; pkh: string }
+        | { kind: "topup"; gistUrl: string };
+
+      const stepsNewestFirst: PostSnapshotStep[] = [];
       let curDatumHash: string | null = utxo.datumHash;
       let depth = 0;
-      while (curDatumHash && depth < 20) {
+
+      while (curDatumHash && curDatumHash !== snapshot.datumHash && depth < 50) {
         depth++;
         try {
           const dRes = await fetch(`${constants.blockfrostUrl}/scripts/datum/${curDatumHash}`, {
@@ -314,10 +324,17 @@ export async function fetchActiveRewardPools(
 
           const lastAction = dFields[3];
           if (lastAction?.constructor === 1 && lastAction?.fields?.[0]?.bytes) {
-            const withdrawnPkh = lastAction.fields[0].bytes.toLowerCase();
-            if (withdrawnPkh === userSkh.toLowerCase()) {
-              userClaimed = true;
-              break;
+            stepsNewestFirst.push({
+              kind: "withdraw",
+              pkh: lastAction.fields[0].bytes.toLowerCase(),
+            });
+          } else if (lastAction?.constructor === 0 && lastAction?.fields?.[1]?.bytes) {
+            const stepGistUrl = hexToUtf8(lastAction.fields[1].bytes);
+            if (stepGistUrl && stepGistUrl.startsWith("http")) {
+              stepsNewestFirst.push({
+                kind: "topup",
+                gistUrl: stepGistUrl,
+              });
             }
           }
 
@@ -331,9 +348,60 @@ export async function fetchActiveRewardPools(
           break;
         }
       }
+
+      const stepsChronological = stepsNewestFirst.reverse();
+      const lowerSkh = userSkh.toLowerCase();
+
+      for (const step of stepsChronological) {
+        if (step.kind === "withdraw") {
+          if (step.pkh === lowerSkh) {
+            lastWithdrawnAlloc = { ...userAlloc };
+            userAlloc = {};
+            userClaimed = true;
+          }
+        } else if (step.kind === "topup") {
+          try {
+            const gRes = await fetch(step.gistUrl);
+            if (gRes.ok) {
+              const gJson = await gRes.json();
+              if (Array.isArray(gJson)) {
+                for (const entry of gJson) {
+                  if (
+                    Array.isArray(entry) &&
+                    typeof entry[0] === "string" &&
+                    entry[0].toLowerCase() === lowerSkh &&
+                    entry[1] &&
+                    typeof entry[1] === "object"
+                  ) {
+                    let addedAny = false;
+                    for (const [u, amt] of Object.entries(entry[1] as Record<string, number>)) {
+                      const num = Number(amt);
+                      if (num > 0) {
+                        userAlloc[u] = (userAlloc[u] || 0) + num;
+                        addedAny = true;
+                      }
+                    }
+                    if (addedAny) {
+                      userClaimed = false;
+                    }
+                  }
+                }
+              }
+            }
+          } catch {
+            // ignore individual Gist fetch errors
+          }
+        }
+      }
     }
 
-    // Lookup user's rewards allocation from snapshot
+    if (localSessionClaimed && !userClaimed) {
+      lastWithdrawnAlloc = { ...userAlloc };
+      userAlloc = {};
+      userClaimed = true;
+    }
+
+    // Lookup user's rewards allocation
     let userClaimableLovelace = 0n;
     let userClaimableGens = 0n;
     let userClaimableGensX = 0n;
@@ -344,15 +412,14 @@ export async function fetchActiveRewardPools(
     let userClaimedGensX = 0n;
     const userClaimedTokens: RewardAsset[] = [];
 
-    const snapshot = poolType === "Vault Staking" ? vsSnapshot : aySnapshot;
-    if (snapshot && userSkh && snapshot.rewards[userSkh]) {
-      const userAlloc = snapshot.rewards[userSkh];
+    const activeAlloc = userClaimed ? lastWithdrawnAlloc || {} : userAlloc;
+    if (userSkh && Object.keys(activeAlloc).length > 0) {
       const parsedTokens: RewardAsset[] = [];
       let parsedLovelace = 0n;
       let parsedGens = 0n;
       let parsedGensX = 0n;
 
-      for (const [rawUnit, amtNum] of Object.entries(userAlloc)) {
+      for (const [rawUnit, amtNum] of Object.entries(activeAlloc)) {
         const amt = BigInt(Math.floor(amtNum));
         if (amt <= 0n) continue;
 
@@ -398,11 +465,8 @@ export async function fetchActiveRewardPools(
 
     if (userClaimed && userSkh) {
       try {
-        const localKey = `genius_zero_claimed_${userSkh.toLowerCase()}_${utxo.txHash}#${utxo.outputIndex}`;
+        const localKey = `genius_zero_claimed_v2_${userSkh.toLowerCase()}_${utxo.txHash}#${utxo.outputIndex}`;
         localStorage.setItem(localKey, "true");
-        if (epochDate) {
-          localStorage.setItem(`genius_zero_claimed_${userSkh.toLowerCase()}_${poolType}_${epochDate}`, "true");
-        }
       } catch {}
     }
 
