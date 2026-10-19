@@ -1,3 +1,4 @@
+import fs from "fs";
 import {
   Lucid,
   Blockfrost,
@@ -172,7 +173,18 @@ async function main() {
   console.log("   Genius Zero — Automated Smart Liquidity Vault (SLV) Transaction Tester");
   console.log("================================================================================");
 
-  const bfKey = "";
+  let bfKey =
+    process.env.VITE_BLOCKFROST_API_KEY_MAINNET ||
+    process.env.BLOCKFROST_API_KEY_MAINNET;
+  if (!bfKey && fs.existsSync(".env")) {
+    const env = fs.readFileSync(".env", "utf-8");
+    bfKey =
+      env.match(/VITE_BLOCKFROST_API_KEY_MAINNET=(.*)/)?.[1]?.trim() ||
+      env.match(/BLOCKFROST_API_KEY_MAINNET=(.*)/)?.[1]?.trim();
+  }
+  if (!bfKey) {
+    throw new Error("Missing BLOCKFROST_API_KEY_MAINNET in environment or .env");
+  }
   const lucid = await Lucid(
     new Blockfrost(DEX_CONSTANTS.mainnet.blockfrostUrl, bfKey),
     "Mainnet"

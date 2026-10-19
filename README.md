@@ -32,30 +32,36 @@ Decentralized exchanges should not depend on centralized company infrastructure 
    - **Market Swaps**: Execute partial or complete fills against active liquidity in the order book.
    - **Order Cancellation**: Reclaim locked assets and order deposit ADA anytime.
 
-3. **Sovereign Staking & Vault Unstaking**:
+3. **Smart Liquidity Vaults (SLVs) & Covered Options**:
+   - **Smart Liquidity Vaults**: Inspect, create, trade against, and withdraw from fixed-price and dynamic oracle-priced (`DeltaOracle`) Aiken V3 Smart Liquidity Vaults.
+   - **Covered Options**: Mint, list/buy on the secondary marketplace, exercise, and reclaim expired covered options directly on-chain.
+
+4. **Sovereign Staking & Vault Unstaking**:
    - Inspect and interact with Genius Yield staking vaults directly on Cardano.
-   - **Eternl Multi-Address Solution**: Automatically scans all derived addresses and payment credentials across your HD wallet, ensuring that vaults created under rotated change addresses are detected and witnessed without error.
+   - **Multi-Address HD Wallet Discovery**: Automatically scans all derived addresses and payment credentials across your wallet (`Eternl`, `Lace`, `Vespr`), ensuring that vaults created under rotated change addresses are detected and witnessed reliably.
    - Unstake principal assets and deposit ADA with direct script execution.
 
-4. **On-Chain Rewards Claiming**:
+5. **On-Chain Rewards Claiming**:
    - Inspect active on-chain reward distribution contracts (`MerkleRewards` / `HotKeyRewards`).
    - Claim accumulated staking and accelerated yield rewards directly from the contract into your wallet.
 
-5. **Multi-Network Support**:
-   - Seamless 1-click toggle between **Cardano Mainnet** and **Cardano Preprod Testnet**.
-   - Independent Blockfrost key storage per network.
-
-6. **Privacy & Local Storage**:
-   - Blockfrost API keys, network preferences, and custom token lists are stored strictly in browser `localStorage`.
-   - Never transmits any user data to third-party tracking services.
+6. **Multi-Network & Local-First Privacy**:
+   - Seamless 1-click toggle between **Cardano Mainnet** and **Cardano Preprod Testnet** with independent Blockfrost key storage per network.
+   - Blockfrost API keys, network preferences, and custom token lists are stored strictly in browser `localStorage` and never sent to third-party tracking services.
 
 ---
 
 ## 🌐 How to Access & Deploy Genius Zero
 
-Genius Zero is designed so that anyone—from technical developers to ordinary community members—can run or host it with minimal effort:
+Genius Zero is designed so that anyone—from technical developers to ordinary community members—can use, run, or self-host it with minimal effort:
 
-### Method 1: GitHub Pages (Recommended — Zero Technical Knowledge)
+### Option 0: Community-Hosted Convenience Mirror (Instant Access)
+For users who simply want to unstake, claim rewards, or trade immediately without setting up a local build or GitHub fork, a static build of the `main` branch is hosted at:
+- **👉 [https://genius-zero.netlify.app](https://genius-zero.netlify.app)**
+- **Bring Your Own Key**: Create a free Cardano Mainnet API key at [blockfrost.io](https://blockfrost.io) and paste it into **Settings ⚙️** (stored only in your browser's `localStorage`).
+- **Don't Trust, Verify**: This mirror serves the exact static bundle built from this repository. Because Genius Zero has zero lock-in, you can switch to your own GitHub Pages fork, IPFS deployment, or local `localhost` build at any time.
+
+### Method 1: GitHub Pages (Recommended Self-Hosting — Zero Technical Knowledge)
 1. Fork this repository on GitHub by clicking the **Fork** button at the top right.
 2. In your forked repository, go to **Settings** > **Pages**.
 3. Under **Build and deployment** > **Source**, choose **GitHub Actions**.
@@ -79,7 +85,7 @@ Open `http://localhost:5173` in any modern web browser.
 ### Method 3: Static Hosting / IPFS
 Because Genius Zero compiles to 100% static HTML, JS, and WebAssembly assets with relative links (`base: "./"`):
 - Simply build with `npm run build`.
-- Upload the contents of the `dist/` directory to **IPFS** (via Fleek or Pinata), **Cloudflare Pages**, or **Vercel**.
+- Upload the contents of the `dist/` directory to **IPFS** (via Fleek or Pinata), **Cloudflare Pages**, **Netlify**, or **Vercel**.
 - The app will function identically on any decentralised IPFS gateway without backend configuration.
 
 ---

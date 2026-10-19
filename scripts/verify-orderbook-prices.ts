@@ -5,10 +5,15 @@ import { calculateFillCost } from "../src/services/trade";
 import fs from "fs";
 
 async function verifyNetwork(network: "mainnet" | "preprod") {
-  const env = fs.readFileSync(".env", "utf-8");
+  const env = fs.existsSync(".env") ? fs.readFileSync(".env", "utf-8") : "";
   const key = network === "mainnet"
-    ? ""
-    : env.match(/BLOCKFROST_API_KEY_PREPROD=(.*)/)?.[1]?.trim();
+    ? (process.env.VITE_BLOCKFROST_API_KEY_MAINNET ||
+       process.env.BLOCKFROST_API_KEY_MAINNET ||
+       env.match(/VITE_BLOCKFROST_API_KEY_MAINNET=(.*)/)?.[1]?.trim() ||
+       env.match(/BLOCKFROST_API_KEY_MAINNET=(.*)/)?.[1]?.trim())
+    : (process.env.VITE_BLOCKFROST_API_KEY_PREPROD ||
+       process.env.BLOCKFROST_API_KEY_PREPROD ||
+       env.match(/BLOCKFROST_API_KEY_PREPROD=(.*)/)?.[1]?.trim());
 
   const lucid = await Lucid(new Blockfrost(DEX_CONSTANTS[network].blockfrostUrl, key!), network === "mainnet" ? "Mainnet" : "Preprod");
   const pair = network === "mainnet" ? DEFAULT_MAINNET_TRADING_PAIRS[0] : PREPROD_TRADING_PAIRS[0];

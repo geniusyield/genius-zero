@@ -3,7 +3,6 @@ import { DEX_CONSTANTS } from "../src/config/dex";
 import { fetchAllLiquidityVaults } from "../src/services/liquidity";
 
 async function main() {
-  const bfKey = ""; // or get from .env
   const env = (await import("fs")).readFileSync(".env", "utf-8");
   const key = env.match(/BLOCKFROST_API_KEY_PREPROD=(.*)/)?.[1]?.trim();
   const lucid = await Lucid(new Blockfrost(DEX_CONSTANTS.preprod.blockfrostUrl, key!), "Preprod");

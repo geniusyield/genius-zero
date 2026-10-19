@@ -10,7 +10,8 @@ import {
 
 function main() {
   const plutusJsonPath = path.resolve(
-    "../options-contracts/aiken/plutus.json"
+    process.env.OPTIONS_PLUTUS_JSON ||
+      path.join(process.cwd(), "../options-contracts/aiken/plutus.json")
   );
   if (!fs.existsSync(plutusJsonPath)) {
     throw new Error(`plutus.json not found at ${plutusJsonPath}`);
@@ -64,8 +65,9 @@ function main() {
 
   console.log("Mint policy hash:    ", mintHash);
 
-  // Read existing NFT policy from genius-zero/src/contracts/options.v3.json
+  // Read existing NFT policy from src/contracts/options.v3.json
   const existingV3Path = path.resolve(
+    process.cwd(),
     "src/contracts/options.v3.json"
   );
   const existingV3 = JSON.parse(fs.readFileSync(existingV3Path, "utf-8"));

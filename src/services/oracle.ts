@@ -526,7 +526,7 @@ export async function fetchLiveOraclePrice(
       return 1.0;
     }
 
-    // 1. Try the oracle microservice daemon
+    // 1. Try oracle microservice daemon
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 4000);

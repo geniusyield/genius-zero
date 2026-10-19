@@ -19,13 +19,13 @@ const MAINNET_SKEY_PATH =
   process.env.ORACLE_SKEY_MAINNET ||
   (fs.existsSync("/opt/genius-claim/config/skeys/owner.skey")
     ? "/opt/genius-claim/config/skeys/owner.skey"
-    : "skeys/rewards-owner.skey");
+    : path.resolve(process.cwd(), "skeys/rewards-owner.skey"));
 
 const PREPROD_SKEY_PATH =
   process.env.ORACLE_SKEY_PREPROD ||
   (fs.existsSync("/opt/genius-claim/config/skeys/oracle-preprod.skey")
     ? "/opt/genius-claim/config/skeys/oracle-preprod.skey"
-    : "skeys/oracle-preprod.skey");
+    : path.resolve(process.cwd(), "skeys/oracle-preprod.skey"));
 
 function loadKey(filePath) {
   if (!fs.existsSync(filePath)) {

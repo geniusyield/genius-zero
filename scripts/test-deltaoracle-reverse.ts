@@ -50,9 +50,8 @@ loadEnv();
 const WALLET_A_FILE = path.resolve(process.cwd(), "test-wallet-preprod.json");
 const WALLET_B_FILE = path.resolve(process.cwd(), "test-wallet-b-preprod.json");
 const ORACLE_SKEY_FILE =
-  fs.existsSync("skeys/oracle-preprod.skey")
-    ? "skeys/oracle-preprod.skey"
-    : "skeys/oracle-preprod.skey";
+  process.env.ORACLE_SKEY_PREPROD ||
+  path.resolve(process.cwd(), "skeys/oracle-preprod.skey");
 
 async function waitForScriptUtxo(
   lucid: LucidEvolution,

@@ -2,8 +2,18 @@ import { Lucid, Blockfrost } from "@lucid-evolution/lucid";
 import { DEX_CONSTANTS } from "../src/config/dex";
 import { fetchAllLiquidityVaults } from "../src/services/liquidity";
 
+import fs from "fs";
+
 async function run() {
-  const bfKey = "";
+  const env = fs.existsSync(".env") ? fs.readFileSync(".env", "utf-8") : "";
+  const bfKey =
+    process.env.VITE_BLOCKFROST_API_KEY_MAINNET ||
+    process.env.BLOCKFROST_API_KEY_MAINNET ||
+    env.match(/VITE_BLOCKFROST_API_KEY_MAINNET=(.*)/)?.[1]?.trim() ||
+    env.match(/BLOCKFROST_API_KEY_MAINNET=(.*)/)?.[1]?.trim();
+  if (!bfKey) {
+    throw new Error("Missing BLOCKFROST_API_KEY_MAINNET in environment or .env");
+  }
   const lucid = await Lucid(new Blockfrost(DEX_CONSTANTS.mainnet.blockfrostUrl, bfKey), "Mainnet");
   const allVaults = await fetchAllLiquidityVaults(lucid, "mainnet");
   console.log(`Found ${allVaults.length} vaults.`);
