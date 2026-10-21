@@ -10,6 +10,7 @@ import {
   Loader2,
   Layers,
   TrendingUp,
+  Github,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { getTradingPairs } from "../config/dex";
@@ -256,6 +257,18 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden sm:inline">{settings.network === "mainnet" ? "Mainnet" : "Preprod"}</span>
             <span className="sm:hidden">{settings.network === "mainnet" ? "Main" : "Prep"}</span>
           </button>
+
+          {/* GitHub Repository Link */}
+          <a
+            href="https://github.com/geniusyield/genius-zero"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="View Genius Zero Source Code on GitHub"
+            aria-label="Genius Zero GitHub Repository"
+            className="p-1.5 sm:p-2 rounded-lg bg-[#182234] border border-[#1f2d44] text-slate-300 hover:text-white hover:border-slate-600 transition-colors shrink-0"
+          >
+            <Github className="w-3.5 h-3.5" />
+          </a>
 
           {/* Settings Button */}
           <button
