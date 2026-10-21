@@ -6,6 +6,9 @@ Genius Zero is a sovereign, open-source web application for interacting with the
 
 Users interact directly with Cardano via their own provider (e.g. Blockfrost API key) and their browser wallet (CIP-30).
 
+- **👉 Live App (Convenience Mirror):** **[https://genius-zero.netlify.app](https://genius-zero.netlify.app)**
+- **📖 Access & Withdrawal Guide:** **[GUIDE.md](./GUIDE.md)** *(step-by-step instructions for getting a free Blockfrost key, unstaking vaults, and claiming rewards)*
+
 ---
 
 ## 🌟 Philosophy & Vision

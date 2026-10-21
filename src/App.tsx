@@ -74,12 +74,22 @@ function MainContent() {
                 Genius Zero interacts directly with Cardano. Enter your free Blockfrost key to query on-chain data and sign transactions.
               </div>
             </div>
-            <button
-              onClick={() => setSettingsOpen(true)}
-              className="w-full sm:w-auto px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shrink-0 transition-colors shadow-md shadow-amber-500/20"
-            >
-              Configure Key
-            </button>
+            <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+              <a
+                href="https://github.com/geniusyield/genius-zero/blob/main/GUIDE.md"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 sm:flex-initial text-center px-3.5 py-2 rounded-xl bg-amber-950/60 hover:bg-amber-900/60 border border-amber-500/40 text-amber-200 font-semibold text-xs transition-colors"
+              >
+                Read Guide
+              </a>
+              <button
+                onClick={() => setSettingsOpen(true)}
+                className="flex-1 sm:flex-initial px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition-colors shadow-md shadow-amber-500/20"
+              >
+                Configure Key
+              </button>
+            </div>
           </div>
         )}
 

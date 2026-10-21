@@ -11,6 +11,7 @@ import {
   Layers,
   TrendingUp,
   Github,
+  BookOpen,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { getTradingPairs } from "../config/dex";
@@ -257,6 +258,18 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden sm:inline">{settings.network === "mainnet" ? "Mainnet" : "Preprod"}</span>
             <span className="sm:hidden">{settings.network === "mainnet" ? "Main" : "Prep"}</span>
           </button>
+
+          {/* User Guide Link */}
+          <a
+            href="https://github.com/geniusyield/genius-zero/blob/main/GUIDE.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Access & Withdrawal Guide"
+            aria-label="Genius Zero Access and Withdrawal Guide"
+            className="p-1.5 sm:p-2 rounded-lg bg-[#182234] border border-[#1f2d44] text-slate-300 hover:text-white hover:border-slate-600 transition-colors shrink-0"
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+          </a>
 
           {/* GitHub Repository Link */}
           <a
