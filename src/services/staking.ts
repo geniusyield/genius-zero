@@ -26,7 +26,7 @@ export interface StakingVault {
   };
   ownerPkh: string;
   ownerAddress?: string;
-  project: string; // "GENS" | "GENSX" | "tGENS" | other
+  project: string; // "GENS" | "GENSX" | "EMP" | "NMKR" | "NTX" | "tGENS" | "NFT" | other
   stakedTokenUnit: string;
   stakedAmount: bigint;
   depositLovelace: bigint;
@@ -34,6 +34,110 @@ export interface StakingVault {
   isUnlocked: boolean;
   isUserOwned: boolean;
   rawDatumHex?: string;
+  attachedNfts?: string[];
+  isNftOnly?: boolean;
+}
+
+function decodeAssetNameLabel(unit: string): string {
+  if (!unit || unit === "lovelace" || unit.length <= 56) return unit;
+  let hex = unit.slice(56);
+  // Strip CIP-68 (0014df10 / 000de140 / 000643b0) prefix if present
+  if (/^00[0-9a-fA-F]{6}/.test(hex) && hex.length > 8) {
+    hex = hex.slice(8);
+  }
+  try {
+    let out = "";
+    for (let i = 0; i < hex.length; i += 2) {
+      const code = parseInt(hex.slice(i, i + 2), 16);
+      if (code >= 32 && code <= 126) {
+        out += String.fromCharCode(code);
+      }
+    }
+    return out.trim() || `${unit.slice(0, 8)}...`;
+  } catch {
+    return `${unit.slice(0, 8)}...`;
+  }
+}
+
+function resolveVaultAssets(
+  nonAda: { unit: string; quantity: bigint }[],
+  depositLovelace: bigint,
+  constants: typeof DEX_CONSTANTS["mainnet"],
+  network: NetworkType
+): {
+  project: string;
+  stakedTokenUnit: string;
+  stakedAmount: bigint;
+  attachedNfts?: string[];
+  isNftOnly?: boolean;
+} {
+  if (nonAda.length === 0) {
+    return {
+      project: network === "mainnet" ? "ADA" : "tADA",
+      stakedTokenUnit: "lovelace",
+      stakedAmount: depositLovelace,
+    };
+  }
+
+  const classifyFungibleProject = (unit: string): string | null => {
+    if (unit.includes("47454e5358") || unit.startsWith(constants.gensxVaultNftPolicy)) {
+      return "GENSX";
+    }
+    if (unit.includes("47454e53") || unit.startsWith(constants.gensVaultNftPolicy)) {
+      return network === "mainnet" ? "GENS" : "tGENS";
+    }
+    if (unit.startsWith("6c8642400e8437f737eb86df0fc8a8437c760f48592b1ba8f5767e81")) {
+      return "EMP";
+    }
+    if (unit.startsWith("5dac8536653edc12f6f5e1045d8164b9f59998d3bdc300fc92843489")) {
+      return "NMKR";
+    }
+    if (unit.startsWith("edfd7a1d77bcb8b884c474bdc92a16002d1fb720e454fa6e99344479")) {
+      return "NTX";
+    }
+    return null;
+  };
+
+  // 1. Prefer known fungible staking project token (GENS, GENSX, EMP, NMKR, NTX),
+  // otherwise pick the asset with the largest quantity so APY booster NFTs (quantity = 1)
+  // never mask the staked principal.
+  let primaryIdx = nonAda.findIndex((a) => classifyFungibleProject(a.unit) !== null);
+  if (primaryIdx === -1) {
+    primaryIdx = 0;
+    for (let i = 1; i < nonAda.length; i++) {
+      if (nonAda[i].quantity > nonAda[primaryIdx].quantity) {
+        primaryIdx = i;
+      }
+    }
+  }
+
+  const primary = nonAda[primaryIdx];
+  const knownProject = classifyFungibleProject(primary.unit);
+
+  if (!knownProject && primary.quantity <= 10n) {
+    const nftNames = nonAda.map((a) => decodeAssetNameLabel(a.unit));
+    const totalNfts = nonAda.reduce((acc, a) => acc + a.quantity, 0n);
+    return {
+      project: "NFT",
+      stakedTokenUnit: primary.unit,
+      stakedAmount: totalNfts,
+      attachedNfts: nftNames,
+      isNftOnly: true,
+    };
+  }
+
+  const otherAssets = nonAda.filter((_, idx) => idx !== primaryIdx);
+  const attachedNfts =
+    otherAssets.length > 0
+      ? otherAssets.map((a) => decodeAssetNameLabel(a.unit))
+      : undefined;
+
+  return {
+    project: knownProject || decodeAssetNameLabel(primary.unit) || "Custom",
+    stakedTokenUnit: primary.unit,
+    stakedAmount: primary.quantity,
+    attachedNfts,
+  };
 }
 
 /**
@@ -147,22 +251,16 @@ async function parseStakingUtxo(
   isUserOwned: boolean
 ): Promise<StakingVault | null> {
   try {
-    const nonAdaAssets = Object.entries(utxo.assets).filter(([unit]) => unit !== "lovelace");
-    const primaryAsset: [string, bigint] =
-      nonAdaAssets.length > 0
-        ? [nonAdaAssets[0][0], nonAdaAssets[0][1]]
-        : ["lovelace", utxo.assets.lovelace];
-    const stakedTokenUnit = primaryAsset[0];
-    const stakedAmount = primaryAsset[1];
-
-    let project = "Custom";
-    if (stakedTokenUnit.includes("47454e5358") || stakedTokenUnit.startsWith(constants.gensxVaultNftPolicy)) {
-      project = "GENSX";
-    } else if (stakedTokenUnit.includes("47454e53") || stakedTokenUnit.startsWith(constants.gensVaultNftPolicy)) {
-      project = network === "mainnet" ? "GENS" : "tGENS";
-    } else if (stakedTokenUnit === "lovelace") {
-      project = network === "mainnet" ? "ADA" : "tADA";
-    }
+    const nonAdaAssets = Object.entries(utxo.assets)
+      .filter(([unit]) => unit !== "lovelace")
+      .map(([unit, quantity]) => ({ unit, quantity }));
+    const {
+      project,
+      stakedTokenUnit,
+      stakedAmount,
+      attachedNfts,
+      isNftOnly,
+    } = resolveVaultAssets(nonAdaAssets, utxo.assets.lovelace || 0n, constants, network);
 
     let ownerPkh = "";
     let ownerAddress: string | undefined;
@@ -214,6 +312,8 @@ async function parseStakingUtxo(
       isUnlocked,
       isUserOwned,
       rawDatumHex,
+      attachedNfts,
+      isNftOnly,
     };
   } catch {
     return null;
@@ -303,26 +403,19 @@ export function parseRawBlockfrostUtxo(
   isUserOwned: boolean
 ): StakingVault {
   const amountList: { unit: string; quantity: string }[] = raw.amount || [];
-  const nonAda = amountList.filter((a) => a.unit !== "lovelace");
-  const primary =
-    nonAda.length > 0
-      ? nonAda[0]
-      : amountList.find((a) => a.unit === "lovelace") || { unit: "lovelace", quantity: "0" };
-
-  const stakedTokenUnit = primary.unit;
-  const stakedAmount = BigInt(primary.quantity || "0");
-
   const adaItem = amountList.find((a) => a.unit === "lovelace");
   const depositLovelace = adaItem ? BigInt(adaItem.quantity || "0") : 0n;
+  const nonAda = amountList
+    .filter((a) => a.unit !== "lovelace")
+    .map((a) => ({ unit: a.unit, quantity: BigInt(a.quantity || "0") }));
 
-  let project = "Custom";
-  if (stakedTokenUnit.includes("47454e5358") || stakedTokenUnit.startsWith(constants.gensxVaultNftPolicy)) {
-    project = "GENSX";
-  } else if (stakedTokenUnit.includes("47454e53") || stakedTokenUnit.startsWith(constants.gensVaultNftPolicy)) {
-    project = network === "mainnet" ? "GENS" : "tGENS";
-  } else if (stakedTokenUnit === "lovelace") {
-    project = network === "mainnet" ? "ADA" : "tADA";
-  }
+  const {
+    project,
+    stakedTokenUnit,
+    stakedAmount,
+    attachedNfts,
+    isNftOnly,
+  } = resolveVaultAssets(nonAda, depositLovelace, constants, network);
 
   let ownerPkh = "";
   let ownerAddress: string | undefined;
@@ -363,6 +456,8 @@ export function parseRawBlockfrostUtxo(
     isUnlocked,
     isUserOwned,
     rawDatumHex,
+    attachedNfts,
+    isNftOnly,
   };
 }
 

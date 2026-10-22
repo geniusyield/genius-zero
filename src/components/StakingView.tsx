@@ -263,6 +263,14 @@ export const StakingView: React.FC<StakingViewProps> = ({
   const validPage = Math.min(currentPage, totalPages);
   const paginatedVaults = filteredVaults.slice((validPage - 1) * pageSize, validPage * pageSize);
 
+  const formatVaultPrincipal = (v: StakingVault) => {
+    if (v.isNftOnly) {
+      const count = Number(v.stakedAmount);
+      return `${count} ${count === 1 ? "NFT" : "NFTs"}`;
+    }
+    return `${formatAmount(v.stakedAmount)} ${v.project}`;
+  };
+
   const formatAmount = (amt: bigint) => {
     return (Number(amt) / 1_000_000).toLocaleString(undefined, {
       minimumFractionDigits: 2,
@@ -585,7 +593,32 @@ export const StakingView: React.FC<StakingViewProps> = ({
                           {v.project}
                         </td>
                         <td className="py-3 px-3 text-slate-200">
-                          {formatAmount(v.stakedAmount)} <span className="text-slate-400">{v.project}</span>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span>
+                              {v.isNftOnly ? (
+                                <>
+                                  {Number(v.stakedAmount)}{" "}
+                                  <span className="text-slate-400">
+                                    {Number(v.stakedAmount) === 1 ? "NFT" : "NFTs"}
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  {formatAmount(v.stakedAmount)}{" "}
+                                  <span className="text-slate-400">{v.project}</span>
+                                </>
+                              )}
+                            </span>
+                            {v.attachedNfts && v.attachedNfts.length > 0 && (
+                              <span
+                                className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/15 text-purple-300 border border-purple-500/30"
+                                title={`Utility NFTs: ${v.attachedNfts.join(", ")}`}
+                              >
+                                {v.isNftOnly ? "" : "+ "}
+                                {v.attachedNfts.join(", ")}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3 px-3 text-slate-400">
                           {(Number(v.depositLovelace) / 1_000_000).toFixed(2)} ADA
@@ -686,8 +719,28 @@ export const StakingView: React.FC<StakingViewProps> = ({
                       <div>
                         <div className="text-[10px] text-slate-500 uppercase">Staked Principal</div>
                         <div className="font-bold text-white text-sm">
-                          {formatAmount(v.stakedAmount)} <span className="text-slate-400 text-xs">{v.project}</span>
+                          {v.isNftOnly ? (
+                            <>
+                              {Number(v.stakedAmount)}{" "}
+                              <span className="text-slate-400 text-xs">
+                                {Number(v.stakedAmount) === 1 ? "NFT" : "NFTs"}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              {formatAmount(v.stakedAmount)}{" "}
+                              <span className="text-slate-400 text-xs">{v.project}</span>
+                            </>
+                          )}
                         </div>
+                        {v.attachedNfts && v.attachedNfts.length > 0 && (
+                          <div className="mt-1">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                              {v.isNftOnly ? "" : "+ "}
+                              {v.attachedNfts.join(", ")}
+                            </span>
+                          </div>
+                        )}
                       </div>
                       <div>
                         <div className="text-[10px] text-slate-500 uppercase">Deposit ADA</div>
@@ -720,7 +773,7 @@ export const StakingView: React.FC<StakingViewProps> = ({
                         ) : (
                           <>
                             <Unlock className="w-3.5 h-3.5" />
-                            <span>Unstake {formatAmount(v.stakedAmount)} {v.project}</span>
+                            <span>Unstake {formatVaultPrincipal(v)}</span>
                           </>
                         )}
                       </button>

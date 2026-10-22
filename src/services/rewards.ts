@@ -144,9 +144,13 @@ export async function loadRewardsSnapshot(
     if (type === "vault-staking" && vsSnapshotCache) return vsSnapshotCache;
     if (type === "accelerated-yield" && aySnapshotCache) return aySnapshotCache;
 
-    const res = await fetch(`/data/rewards-${type}.json`);
+    const res = await fetch(`/data/rewards-${type}.json`, { cache: "no-cache" });
     if (!res.ok) return null;
-    const data: RewardSnapshot = await res.json();
+    const raw: any = await res.json();
+    const data: RewardSnapshot = {
+      ...raw,
+      rewards: raw.rewards || raw.users || {},
+    };
     if (type === "vault-staking") vsSnapshotCache = data;
     else aySnapshotCache = data;
     return data;
@@ -295,8 +299,9 @@ export async function fetchActiveRewardPools(
     }
 
     const snapshot = poolType === "Vault Staking" ? vsSnapshot : aySnapshot;
+    const rewardMap = snapshot?.rewards || (snapshot as any)?.users || {};
     let userAlloc: Record<string, number> =
-      snapshot && userSkh && snapshot.rewards[userSkh] ? { ...snapshot.rewards[userSkh] } : {};
+      userSkh && rewardMap[userSkh] ? { ...rewardMap[userSkh] } : {};
     let lastWithdrawnAlloc: Record<string, number> | null = null;
     let userClaimed = false;
 
