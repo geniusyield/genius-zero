@@ -1,6 +1,7 @@
 import { getAddressDetails, LucidEvolution, UTxO, CML, fromHex } from "@lucid-evolution/lucid";
 import { NetworkType } from "../types";
 import { DEX_CONSTANTS, DEFAULT_MAINNET_TOKENS } from "../config/dex";
+import { getOrFetchDatumJson, getOrFetchGistJson } from "./cache";
 
 export interface RewardAsset {
   unit: string;
@@ -231,14 +232,25 @@ export async function fetchActiveRewardPools(
     let gistUrl = poolType === "Vault Staking" ? vsSnapshot?.gistUrl : aySnapshot?.gistUrl;
     let infoString = `${poolType} (${utxo.txHash.slice(0, 10)}...#${utxo.outputIndex})`;
 
+    const fetchBlockfrostDatumJson = async (dHash: string): Promise<any | null> => {
+      if (!blockfrostApiKey) return null;
+      return getOrFetchDatumJson(dHash, async () => {
+        const url = `${constants.blockfrostUrl}/scripts/datum/${dHash}`;
+        let res = await fetch(url, { headers: { project_id: blockfrostApiKey } });
+        if (res.status === 429) {
+          await new Promise((r) => setTimeout(r, 500));
+          res = await fetch(url, { headers: { project_id: blockfrostApiKey } });
+        }
+        if (!res.ok) return null;
+        return await res.json();
+      });
+    };
+
     // Try fetching datum from Blockfrost if datumHash is present
     if (utxo.datumHash && blockfrostApiKey) {
       try {
-        const datumRes = await fetch(`${constants.blockfrostUrl}/scripts/datum/${utxo.datumHash}`, {
-          headers: { project_id: blockfrostApiKey },
-        });
-        if (datumRes.ok) {
-          const datumJson = await datumRes.json();
+        const datumJson = await fetchBlockfrostDatumJson(utxo.datumHash);
+        if (datumJson) {
           const fields = datumJson?.json_value?.fields;
           if (fields && fields.length > 0 && fields[0]?.bytes) {
             const decodedInfo = hexToUtf8(fields[0].bytes);
@@ -256,7 +268,7 @@ export async function fetchActiveRewardPools(
             }
           }
           if (fields && fields[3]?.fields && fields[3].fields[1]?.bytes) {
-            const decodedUrl = hexToUtf8(fields[3].fields[1].bytes);
+            const decodedUrl = hexToUtf8(fields[3].fields[1]?.bytes);
             if (decodedUrl && decodedUrl.startsWith("http")) {
               gistUrl = decodedUrl;
             }
@@ -316,14 +328,11 @@ export async function fetchActiveRewardPools(
       let curDatumHash: string | null = utxo.datumHash;
       let depth = 0;
 
-      while (curDatumHash && curDatumHash !== snapshot.datumHash && depth < 50) {
+      while (curDatumHash && curDatumHash !== snapshot.datumHash && depth < 5000) {
         depth++;
         try {
-          const dRes = await fetch(`${constants.blockfrostUrl}/scripts/datum/${curDatumHash}`, {
-            headers: { project_id: blockfrostApiKey },
-          });
-          if (!dRes.ok) break;
-          const dJson = await dRes.json();
+          const dJson = await fetchBlockfrostDatumJson(curDatumHash);
+          if (!dJson) break;
           const dFields = dJson?.json_value?.fields;
           if (!dFields || dFields.length < 4) break;
 
@@ -366,29 +375,30 @@ export async function fetchActiveRewardPools(
           }
         } else if (step.kind === "topup") {
           try {
-            const gRes = await fetch(step.gistUrl);
-            if (gRes.ok) {
-              const gJson = await gRes.json();
-              if (Array.isArray(gJson)) {
-                for (const entry of gJson) {
-                  if (
-                    Array.isArray(entry) &&
-                    typeof entry[0] === "string" &&
-                    entry[0].toLowerCase() === lowerSkh &&
-                    entry[1] &&
-                    typeof entry[1] === "object"
-                  ) {
-                    let addedAny = false;
-                    for (const [u, amt] of Object.entries(entry[1] as Record<string, number>)) {
-                      const num = Number(amt);
-                      if (num > 0) {
-                        userAlloc[u] = (userAlloc[u] || 0) + num;
-                        addedAny = true;
-                      }
+            const gJson = await getOrFetchGistJson(step.gistUrl, async () => {
+              const gRes = await fetch(step.gistUrl);
+              if (!gRes.ok) return null;
+              return await gRes.json();
+            });
+            if (Array.isArray(gJson)) {
+              for (const entry of gJson) {
+                if (
+                  Array.isArray(entry) &&
+                  typeof entry[0] === "string" &&
+                  entry[0].toLowerCase() === lowerSkh &&
+                  entry[1] &&
+                  typeof entry[1] === "object"
+                ) {
+                  let addedAny = false;
+                  for (const [u, amt] of Object.entries(entry[1] as Record<string, number>)) {
+                    const num = Number(amt);
+                    if (num > 0) {
+                      userAlloc[u] = (userAlloc[u] || 0) + num;
+                      addedAny = true;
                     }
-                    if (addedAny) {
-                      userClaimed = false;
-                    }
+                  }
+                  if (addedAny) {
+                    userClaimed = false;
                   }
                 }
               }

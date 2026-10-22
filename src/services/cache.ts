@@ -115,6 +115,54 @@ export async function getOrFetchDatum(
 }
 
 /**
+ * Resolves a parsed JSON datum by its content hash using local IndexedDB cache first.
+ * Keyed under `json:${datumHash}` in the `datums` object store so it never collides
+ * with raw CBOR strings.
+ */
+export async function getOrFetchDatumJson<T = any>(
+  datumHash: string,
+  fetchFn: () => Promise<T | null>
+): Promise<T | null> {
+  if (!datumHash) return null;
+  const cacheKey = `json:${datumHash}`;
+
+  const cached = await getFromStore<T>("datums", cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const freshJson = await fetchFn();
+  if (freshJson) {
+    await setToStore("datums", cacheKey, freshJson);
+  }
+
+  return freshJson;
+}
+
+/**
+ * Resolves an immutable Gist JSON payload by its URL using local IndexedDB cache first.
+ */
+export async function getOrFetchGistJson<T = any>(
+  gistUrl: string,
+  fetchFn: () => Promise<T | null>
+): Promise<T | null> {
+  if (!gistUrl) return null;
+  const cacheKey = `gist:${gistUrl}`;
+
+  const cached = await getFromStore<T>("datums", cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const freshJson = await fetchFn();
+  if (freshJson) {
+    await setToStore("datums", cacheKey, freshJson);
+  }
+
+  return freshJson;
+}
+
+/**
  * Resolves transaction details (e.g. outputs/inputs) using local cache first.
  */
 export async function getOrFetchTx<T>(
