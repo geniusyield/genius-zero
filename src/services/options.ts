@@ -30,6 +30,7 @@ import {
   calculateRequiredPayment,
 } from "../contracts/options";
 import { getDefaultTokens, DEX_CONSTANTS } from "../config/dex";
+import { KNOWN_REWARD_TOKENS } from "./rewards";
 import { NetworkType, FetchProgress, TokenInfo, TradingPair, DexOrder } from "../types";
 import { runWithConcurrency } from "./staking";
 import { fetchAllActiveParsedOrders, ParsedOnChainOrder } from "./orderbook";
@@ -107,8 +108,9 @@ export function resolveTokenMeta(
   }
 
   const unit = assetToUnit(asset);
+  const rawUnit = unit.replace(".", "");
   const knownTokens = getDefaultTokens(network);
-  const found = knownTokens.find((t) => t.unit.toLowerCase() === unit.toLowerCase());
+  const found = knownTokens.find((t) => t.unit.toLowerCase() === rawUnit.toLowerCase());
   if (found) {
     return {
       symbol: found.symbol,
@@ -116,10 +118,24 @@ export function resolveTokenMeta(
     };
   }
 
-  // Try ASCII decoding of asset name
+  if (network === "mainnet") {
+    const known = KNOWN_REWARD_TOKENS[rawUnit] || KNOWN_REWARD_TOKENS[unit];
+    if (known) {
+      return {
+        symbol: known.ticker,
+        decimals: known.decimals,
+      };
+    }
+  }
+
+  // Try ASCII decoding of asset name (stripping CIP-68 prefix if present)
   try {
     if (asset.assetName) {
-      const bytes = fromHex(asset.assetName);
+      let cleanHex = asset.assetName;
+      if (/^00(0643b0|0de140|14df10|1bc280)/i.test(cleanHex) && cleanHex.length > 8) {
+        cleanHex = cleanHex.slice(8);
+      }
+      const bytes = fromHex(cleanHex);
       const ascii = new TextDecoder().decode(bytes);
       if (/^[a-zA-Z0-9_-]{1,16}$/.test(ascii)) {
         return { symbol: ascii, decimals: 0 };

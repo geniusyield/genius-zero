@@ -61,8 +61,8 @@ export const KNOWN_REWARD_TOKENS: Record<string, { ticker: string; decimals: num
   "279c909f348e533da5808898f87f9a14bb2c3dfbbacccd631d927a3f534e454b": { ticker: "SNEK", decimals: 0 },
   "29d222ce763455e3d7a09a665ce554f00ac89d2e99a1a83d267170c6.4d494e": { ticker: "MIN", decimals: 6 },
   "29d222ce763455e3d7a09a665ce554f00ac89d2e99a1a83d267170c64d494e": { ticker: "MIN", decimals: 6 },
-  "51a5e236c4de3af2b8020442e2a26f454fda3b04cb621c1294a0ef34.424f4f4b": { ticker: "BOOK", decimals: 6 },
-  "51a5e236c4de3af2b8020442e2a26f454fda3b04cb621c1294a0ef34424f4f4b": { ticker: "BOOK", decimals: 6 },
+  "51a5e236c4de3af2b8020442e2a26f454fda3b04cb621c1294a0ef34.424f4f4b": { ticker: "STUFF", decimals: 6 },
+  "51a5e236c4de3af2b8020442e2a26f454fda3b04cb621c1294a0ef34424f4f4b": { ticker: "STUFF", decimals: 6 },
   "533bb94a8850ee3ccbe483106489399112b74c905342cb1792a797a0.494e4459": { ticker: "INDY", decimals: 6 },
   "533bb94a8850ee3ccbe483106489399112b74c905342cb1792a797a0494e4459": { ticker: "INDY", decimals: 6 },
   "5d16cc1a177b5d9ba9cfa9793b07e60f1fb70fea1f8aef064415d114.494147": { ticker: "IAG", decimals: 6 },
@@ -77,10 +77,10 @@ export const KNOWN_REWARD_TOKENS: Record<string, { ticker: string; decimals: num
   "f43a62fdc3965df486de8a0d32fe800963589c41b38946602a0dc53541474958": { ticker: "AGIX", decimals: 8 },
   "1d7f33bd23d85e1a25d87d86fac4f199c3197a2f7afeb662a0f34e1e.776f726c646d6f62696c65746f6b656e": { ticker: "WMT", decimals: 6 },
   "1d7f33bd23d85e1a25d87d86fac4f199c3197a2f7afeb662a0f34e1e776f726c646d6f62696c65746f6b656e": { ticker: "WMT", decimals: 6 },
-  "04b95368393c821f180deee8229fbd941baaf9bd748ebcdbf7adbb14.7273455247": { ticker: "rsERG", decimals: 6 },
-  "04b95368393c821f180deee8229fbd941baaf9bd748ebcdbf7adbb147273455247": { ticker: "rsERG", decimals: 6 },
-  "f5f8e854af532d828d00381df799ba6db22d825c9b140e1d5795cf85.0014df10447261676f6e476f6c64": { ticker: "DragonGold", decimals: 6 },
-  "f5f8e854af532d828d00381df799ba6db22d825c9b140e1d5795cf850014df10447261676f6e476f6c64": { ticker: "DragonGold", decimals: 6 },
+  "04b95368393c821f180deee8229fbd941baaf9bd748ebcdbf7adbb14.7273455247": { ticker: "rsERG", decimals: 9 },
+  "04b95368393c821f180deee8229fbd941baaf9bd748ebcdbf7adbb147273455247": { ticker: "rsERG", decimals: 9 },
+  "f5f8e854af532d828d00381df799ba6db22d825c9b140e1d5795cf85.0014df10447261676f6e476f6c64": { ticker: "DG", decimals: 6 },
+  "f5f8e854af532d828d00381df799ba6db22d825c9b140e1d5795cf850014df10447261676f6e476f6c64": { ticker: "DG", decimals: 6 },
   "804f5544c1962a40546827cab750a88404dc7108c0f588b72964754f.56594649": { ticker: "VYFI", decimals: 6 },
   "804f5544c1962a40546827cab750a88404dc7108c0f588b72964754f56594649": { ticker: "VYFI", decimals: 6 },
   "fc11a9ef431f81b837736be5f53e4da29b9469c983d07f321262ce61.4652454e": { ticker: "FREN", decimals: 0 },
@@ -95,8 +95,54 @@ export const KNOWN_REWARD_TOKENS: Record<string, { ticker: string; decimals: num
   "9a9693a9a37912a5097918f97918d15240c92ab729a0b7c4aa144d7753554e444145": { ticker: "SUNDAE", decimals: 6 },
   "a2944573e99d2ed3055b808eaa264f0bf119e01fc6b18863067c63e4.4d454c44": { ticker: "MELD", decimals: 6 },
   "a2944573e99d2ed3055b808eaa264f0bf119e01fc6b18863067c63e44d454c44": { ticker: "MELD", decimals: 6 },
+  "6ac8ef33b510ec004fe11585f7c5a9f0c07f0c23428ab4f29c1d7d10.4d454c44": { ticker: "MELD", decimals: 6 },
+  "6ac8ef33b510ec004fe11585f7c5a9f0c07f0c23428ab4f29c1d7d104d454c44": { ticker: "MELD", decimals: 6 },
   "af2e27f580f7f08e93190a81f72462f153026d06450924726645891b.44524950": { ticker: "DRIP", decimals: 6 },
   "af2e27f580f7f08e93190a81f72462f153026d06450924726645891b44524950": { ticker: "DRIP", decimals: 6 },
+  "a0028f350aaabe0545fdcb56b039bfb08e4bb4d8c4d7c3c7d481c235.484f534b59": { ticker: "HOSKY", decimals: 0 },
+  "a0028f350aaabe0545fdcb56b039bfb08e4bb4d8c4d7c3c7d481c235484f534b59": { ticker: "HOSKY", decimals: 0 },
+  "c881c20e49dbaca3ff6cef365969354150983230c39520b917f5cf7c.4e696b65": { ticker: "NIKEPIG", decimals: 0 },
+  "c881c20e49dbaca3ff6cef365969354150983230c39520b917f5cf7c4e696b65": { ticker: "NIKEPIG", decimals: 0 },
+  "8db269c3ec630e06ae29f74bc39edd1f87c819f1056206e879a1cd61.446a65644d6963726f555344": { ticker: "DJED", decimals: 6 },
+  "8db269c3ec630e06ae29f74bc39edd1f87c819f1056206e879a1cd61446a65644d6963726f555344": { ticker: "DJED", decimals: 6 },
+  "8db269c3ec630e06ae29f74bc39edd1f87c819f1056206e879a1cd61.5368656e4d6963726f555344": { ticker: "SHEN", decimals: 6 },
+  "8db269c3ec630e06ae29f74bc39edd1f87c819f1056206e879a1cd615368656e4d6963726f555344": { ticker: "SHEN", decimals: 6 },
+  "a3931691f5c4e65d01c429e473d0dd24c51afdb6daf88e632a6c1e51.6f7263666178746f6b656e": { ticker: "FACT", decimals: 6 },
+  "a3931691f5c4e65d01c429e473d0dd24c51afdb6daf88e632a6c1e516f7263666178746f6b656e": { ticker: "FACT", decimals: 6 },
+  "6c8642400e8437f737eb86df0fc8a8437c760f48592b1ba8f5767e81.456d706f7761": { ticker: "EMP", decimals: 6 },
+  "6c8642400e8437f737eb86df0fc8a8437c760f48592b1ba8f5767e81456d706f7761": { ticker: "EMP", decimals: 6 },
+  "f66d78b4a3cb3d37afa0ec36461e51ecbde00f26c8f0a68f94b69880.69555344": { ticker: "iUSD", decimals: 6 },
+  "f66d78b4a3cb3d37afa0ec36461e51ecbde00f26c8f0a68f94b6988069555344": { ticker: "iUSD", decimals: 6 },
+  "f66d78b4a3cb3d37afa0ec36461e51ecbde00f26c8f0a68f94b69880.69425443": { ticker: "iBTC", decimals: 6 },
+  "f66d78b4a3cb3d37afa0ec36461e51ecbde00f26c8f0a68f94b6988069425443": { ticker: "iBTC", decimals: 6 },
+  "1ddcb9c9de95361565392c5bdff64767492d61a96166cb16094e54be.4f5054": { ticker: "OPT", decimals: 6 },
+  "1ddcb9c9de95361565392c5bdff64767492d61a96166cb16094e54be4f5054": { ticker: "OPT", decimals: 6 },
+  "25f0fc240e91bd95dcdaebd2ba7713fc5168ac77234a3d79449fc20c.534f4349455459": { ticker: "SOC", decimals: 6 },
+  "25f0fc240e91bd95dcdaebd2ba7713fc5168ac77234a3d79449fc20c534f4349455459": { ticker: "SOC", decimals: 6 },
+  "285b65ae63d4fad36321384ec61edfd5187b8194fff89b5abe9876da.414e47454c53": { ticker: "ANGELS", decimals: 6 },
+  "285b65ae63d4fad36321384ec61edfd5187b8194fff89b5abe9876da414e47454c53": { ticker: "ANGELS", decimals: 6 },
+  "43b07d4037f0d75ee10f9863097463fc02ff3c0b8b705ae61d9c75bf.4d796e746820546f6b656e": { ticker: "MNT", decimals: 6 },
+  "43b07d4037f0d75ee10f9863097463fc02ff3c0b8b705ae61d9c75bf4d796e746820546f6b656e": { ticker: "MNT", decimals: 6 },
+  "5b26e685cc5c9ad630bde3e3cd48c694436671f3d25df53777ca60ef.4e564c": { ticker: "NVL", decimals: 6 },
+  "5b26e685cc5c9ad630bde3e3cd48c694436671f3d25df53777ca60ef4e564c": { ticker: "NVL", decimals: 6 },
+  "7914fae20eb2903ed6fd5021a415c1bd2626b64a2d86a304cb40ff5e.4c494649": { ticker: "LIFI", decimals: 6 },
+  "7914fae20eb2903ed6fd5021a415c1bd2626b64a2d86a304cb40ff5e4c494649": { ticker: "LIFI", decimals: 6 },
+  "8cfd6893f5f6c1cc954cec1a0a1460841b74da6e7803820dde62bb78.524a56": { ticker: "RJV", decimals: 6 },
+  "8cfd6893f5f6c1cc954cec1a0a1460841b74da6e7803820dde62bb78524a56": { ticker: "RJV", decimals: 6 },
+  "8daefa391220bd0d8d007f3748d870f7f3c106040314c8515ccc35a5.464c4143": { ticker: "FLAC", decimals: 6 },
+  "8daefa391220bd0d8d007f3748d870f7f3c106040314c8515ccc35a5464c4143": { ticker: "FLAC", decimals: 6 },
+  "8fef2d34078659493ce161a6c7fba4b56afefa8535296a5743f69587.41414441": { ticker: "LENFI", decimals: 6 },
+  "8fef2d34078659493ce161a6c7fba4b56afefa8535296a5743f6958741414441": { ticker: "LENFI", decimals: 6 },
+  "9abf0afd2f236a19f2842d502d0450cbcd9c79f123a9708f96fd9b96.454e4353": { ticker: "ENCS", decimals: 6 },
+  "9abf0afd2f236a19f2842d502d0450cbcd9c79f123a9708f96fd9b96454e4353": { ticker: "ENCS", decimals: 6 },
+  "afbe91c0b44b3040e360057bf8354ead8c49c4979ae6ab7c4fbdc9eb.4d494c4b7632": { ticker: "MILK", decimals: 6 },
+  "afbe91c0b44b3040e360057bf8354ead8c49c4979ae6ab7c4fbdc9eb4d494c4b7632": { ticker: "MILK", decimals: 6 },
+  "b6a7467ea1deb012808ef4e87b5ff371e85f7142d7b356a40d9b42a0.436f726e75636f70696173205b76696120436861696e506f72742e696f5d": { ticker: "COPI", decimals: 6 },
+  "b6a7467ea1deb012808ef4e87b5ff371e85f7142d7b356a40d9b42a0436f726e75636f70696173205b76696120436861696e506f72742e696f5d": { ticker: "COPI", decimals: 6 },
+  "c0ee29a85b13209423b10447d3c2e6a50641a15c57770e27cb9d5073.57696e67526964657273": { ticker: "WRT", decimals: 6 },
+  "c0ee29a85b13209423b10447d3c2e6a50641a15c57770e27cb9d507357696e67526964657273": { ticker: "WRT", decimals: 6 },
+  "e5a42a1a1d3d1da71b0449663c32798725888d2eb0843c4dabeca05a.576f726c644d6f62696c65546f6b656e58": { ticker: "WMTX", decimals: 6 },
+  "e5a42a1a1d3d1da71b0449663c32798725888d2eb0843c4dabeca05a576f726c644d6f62696c65546f6b656e58": { ticker: "WMTX", decimals: 6 },
 };
 
 export function resolveTokenMeta(unit: string): { ticker: string; decimals: number } {
@@ -106,8 +152,17 @@ export function resolveTokenMeta(unit: string): { ticker: string; decimals: numb
   const dotUnit = unit.includes(".") ? unit : `${unit.slice(0, 56)}.${unit.slice(56)}`;
   if (KNOWN_REWARD_TOKENS[dotUnit]) return KNOWN_REWARD_TOKENS[dotUnit];
 
-  const hexName = unit.includes(".") ? unit.split(".")[1] : unit.slice(56);
+  const rawUnit = unit.replace(".", "");
+  const defaultFound = DEFAULT_MAINNET_TOKENS.find((t) => t.unit.toLowerCase() === rawUnit.toLowerCase());
+  if (defaultFound) {
+    return { ticker: defaultFound.symbol, decimals: defaultFound.decimals };
+  }
+
+  let hexName = unit.includes(".") ? unit.split(".")[1] : unit.slice(56);
   if (hexName) {
+    if (/^00(0643b0|0de140|14df10|1bc280)/i.test(hexName) && hexName.length > 8) {
+      hexName = hexName.slice(8);
+    }
     try {
       let ascii = "";
       for (let i = 0; i < hexName.length; i += 2) {

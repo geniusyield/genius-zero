@@ -17,6 +17,7 @@ import {
   DEFAULT_MAINNET_TOKENS,
   DEFAULT_PREPROD_TOKENS,
 } from "../config/dex";
+import { KNOWN_REWARD_TOKENS } from "./rewards";
 import { decodePlutusAddress } from "../contracts/slv";
 
 /**
@@ -31,22 +32,39 @@ export function resolveTokenInfo(
     return network === "mainnet" ? ADA_TOKEN : TADA_TOKEN;
   }
 
+  const rawUnit = unit.replace(".", "");
+
   // 1. Check custom tokens
-  const custom = customTokens.find((t) => t.unit.toLowerCase() === unit.toLowerCase());
+  const custom = customTokens.find((t) => t.unit.replace(".", "").toLowerCase() === rawUnit.toLowerCase());
   if (custom) return custom;
 
   // 2. Check default tokens
   const defaults = network === "mainnet" ? DEFAULT_MAINNET_TOKENS : DEFAULT_PREPROD_TOKENS;
-  const found = defaults.find((t) => t.unit.toLowerCase() === unit.toLowerCase());
+  const found = defaults.find((t) => t.unit.toLowerCase() === rawUnit.toLowerCase());
   if (found) return found;
 
-  // 3. Fallback: parse policy ID and asset name hex
-  const policyId = unit.slice(0, 56);
-  const assetNameHex = unit.slice(56);
+  // 3. Check known reward tokens on mainnet
+  if (network === "mainnet") {
+    const known = KNOWN_REWARD_TOKENS[rawUnit] || KNOWN_REWARD_TOKENS[unit];
+    if (known) {
+      return {
+        unit: rawUnit,
+        policyId: rawUnit.slice(0, 56),
+        assetName: rawUnit.slice(56),
+        symbol: known.ticker,
+        name: known.ticker,
+        decimals: known.decimals,
+      };
+    }
+  }
+
+  // 4. Fallback: parse policy ID and asset name hex
+  const policyId = rawUnit.slice(0, 56);
+  const assetNameHex = rawUnit.slice(56);
 
   let cleanHex = assetNameHex;
-  // Strip common CIP-68 or Genius Yield prefix (e.g. 0014df10) if present
-  if (cleanHex.startsWith("0014df10") && cleanHex.length > 8) {
+  // Strip common CIP-68 prefix (e.g. 0014df10) if present
+  if (/^00(0643b0|0de140|14df10|1bc280)/i.test(cleanHex) && cleanHex.length > 8) {
     cleanHex = cleanHex.slice(8);
   }
 

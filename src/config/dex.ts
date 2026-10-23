@@ -248,11 +248,11 @@ export const NMKR_MAINNET_TOKEN: TokenInfo = {
 };
 
 export const INDY_MAINNET_TOKEN: TokenInfo = {
-  unit: "533bb94a88614e341565774319fe0b8388500a3276996868f4e55d65494e4459",
-  policyId: "533bb94a88614e341565774319fe0b8388500a3276996868f4e55d65",
+  unit: "533bb94a8850ee3ccbe483106489399112b74c905342cb1792a797a0494e4459",
+  policyId: "533bb94a8850ee3ccbe483106489399112b74c905342cb1792a797a0",
   assetName: "494e4459",
   symbol: "INDY",
-  name: "Indigo Protocol",
+  name: "Indigo DAO Token",
   decimals: 6,
   icon: "https://assets.coingecko.com/coins/images/28271/standard/indigo.png",
 };
