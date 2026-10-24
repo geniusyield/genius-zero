@@ -14,6 +14,7 @@ import {
 import { fromHex } from "@lucid-evolution/lucid";
 import { useApp } from "../context/AppContext";
 import { TokenInfo } from "../types";
+import { getDefaultTokens } from "../config/dex";
 import { createLiquidityVault } from "../contracts/slv";
 import { toExactRational, fetchLiveOraclePrice } from "../services/oracle";
 import { formatNumericPrice } from "../services/liquidity";
@@ -30,13 +31,16 @@ export const CreateVaultModal: React.FC<CreateVaultModalProps> = ({
   onSuccess,
 }) => {
   const { wallet, settings, lucid } = useApp();
+  const defaultTokens = getDefaultTokens(settings.network);
+  const defaultTokenB =
+    defaultTokens.find((t) => t.unit !== "lovelace")?.unit || "lovelace";
 
   // Asset A (Offered)
   const [selectedTokenAUnit, setSelectedTokenAUnit] = useState<string>("lovelace");
   const [amountAInput, setAmountAInput] = useState<string>("0");
 
   // Asset B (Asked)
-  const [selectedTokenBUnit, setSelectedTokenBUnit] = useState<string>("lovelace");
+  const [selectedTokenBUnit, setSelectedTokenBUnit] = useState<string>(defaultTokenB);
   const [amountBInput, setAmountBInput] = useState<string>("0");
 
   // Pricing Mode: 'fixed' | 'oracle'
@@ -61,28 +65,27 @@ export const CreateVaultModal: React.FC<CreateVaultModalProps> = ({
   const [txHash, setTxHash] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  if (!isOpen) return null;
-
-  // Available token options (ADA + customTokens + tokens in wallet)
-  const adaToken: TokenInfo = {
-    unit: "lovelace",
-    policyId: "",
-    name: "ADA",
-    symbol: settings.network === "mainnet" ? "ADA" : "tADA",
-    decimals: 6,
-  };
-
-  const availableTokens: TokenInfo[] = [
-    adaToken,
-    ...(settings.customTokens || []),
-  ];
+  // Available token options (default network tokens + customTokens)
+  const availableTokens: TokenInfo[] = React.useMemo(() => {
+    const map = new Map<string, TokenInfo>();
+    for (const t of defaultTokens) {
+      map.set(t.unit, t);
+    }
+    for (const t of settings.customTokens || []) {
+      if (!map.has(t.unit)) {
+        map.set(t.unit, t);
+      }
+    }
+    return Array.from(map.values());
+  }, [defaultTokens, settings.customTokens]);
 
   // Helper to find token info
   const getTokenInfo = (unit: string): TokenInfo => {
     return (
       availableTokens.find((t) => t.unit === unit) || {
         unit,
-        policyId: unit.slice(0, 56),
+        policyId: unit !== "lovelace" ? unit.slice(0, 56) : "",
+        assetName: unit !== "lovelace" ? unit.slice(56) : "",
         name: unit.slice(56),
         symbol: unit.slice(56)
           ? (() => {
@@ -101,9 +104,16 @@ export const CreateVaultModal: React.FC<CreateVaultModalProps> = ({
   const tokenA = getTokenInfo(selectedTokenAUnit);
   const tokenB = getTokenInfo(selectedTokenBUnit);
 
+  // Ensure selectedTokenBUnit stays valid when network changes
+  React.useEffect(() => {
+    if (!availableTokens.some((t) => t.unit === selectedTokenBUnit)) {
+      setSelectedTokenBUnit(defaultTokenB);
+    }
+  }, [availableTokens, selectedTokenBUnit, defaultTokenB]);
+
   // Fetch live benchmark price for the selected pair
   React.useEffect(() => {
-    if (!tokenA || !tokenB || tokenA.unit === tokenB.unit) {
+    if (!isOpen || !tokenA || !tokenB || tokenA.unit === tokenB.unit) {
       setLiveOraclePrice(null);
       return;
     }
@@ -125,7 +135,9 @@ export const CreateVaultModal: React.FC<CreateVaultModalProps> = ({
     return () => {
       isCancelled = true;
     };
-  }, [tokenA.unit, tokenB.unit, settings.network]);
+  }, [isOpen, tokenA.unit, tokenB.unit, settings.network]);
+
+  if (!isOpen) return null;
 
   // Validate inputs
   const parsedAmountA = parseFloat(amountAInput);
@@ -219,13 +231,21 @@ export const CreateVaultModal: React.FC<CreateVaultModalProps> = ({
       const res = await createLiquidityVault(lucid, {
         ownerAddress: wallet.address,
         offeredAsset: {
-          policyId: tokenA.policyId || "",
-          assetName: tokenA.assetName || "",
+          policyId:
+            tokenA.policyId ??
+            (tokenA.unit !== "lovelace" ? tokenA.unit.slice(0, 56) : ""),
+          assetName:
+            tokenA.assetName ??
+            (tokenA.unit !== "lovelace" ? tokenA.unit.slice(56) : ""),
           amount: atomicAmountA,
         },
         askedAsset: {
-          policyId: tokenB.policyId || "",
-          assetName: tokenB.assetName || "",
+          policyId:
+            tokenB.policyId ??
+            (tokenB.unit !== "lovelace" ? tokenB.unit.slice(0, 56) : ""),
+          assetName:
+            tokenB.assetName ??
+            (tokenB.unit !== "lovelace" ? tokenB.unit.slice(56) : ""),
           amount: atomicAmountB,
         },
         pricing: pricingPayload,
