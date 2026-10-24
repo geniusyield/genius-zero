@@ -515,6 +515,8 @@ async function fetchOnChainDexPoolPrice({
   poolAddr,
   nftPrefixes,
   minLovelace = 1_000_000_000n,
+  depositDeductLovelace = 0n,
+  exactAmountCount = null,
 }) {
   if (unit === "lovelace" || !unit) {
     return { provider: providerName, providerGroup: "blockfrost-onchain", venue: "canonical-ada", price: 1.0, timestamp: Date.now() };
@@ -546,6 +548,7 @@ async function fetchOnChainDexPoolPrice({
           let bestToken = 0n;
 
           for (const utxo of utxos) {
+            if (exactAmountCount !== null && utxo.amount.length !== exactAmountCount) continue;
             const hasPoolNft = utxo.amount.some((a) =>
               nftPrefixes.some((prefix) => a.unit.startsWith(prefix))
             );
@@ -553,7 +556,8 @@ async function fetchOnChainDexPoolPrice({
             const tokenStr = utxo.amount.find((a) => a.unit === u)?.quantity;
             if (!hasPoolNft || !lovelaceStr || !tokenStr) continue;
 
-            const lovelaceAmt = BigInt(lovelaceStr);
+            const rawLovelace = BigInt(lovelaceStr);
+            const lovelaceAmt = rawLovelace > depositDeductLovelace ? rawLovelace - depositDeductLovelace : rawLovelace;
             const tokenAmt = BigInt(tokenStr);
             if (lovelaceAmt >= minLovelace && tokenAmt > 0n && lovelaceAmt > bestLovelace) {
               bestLovelace = lovelaceAmt;
@@ -571,6 +575,7 @@ async function fetchOnChainDexPoolPrice({
                 providerGroup: "blockfrost-onchain",
                 venue: venueName,
                 price: displayPrice,
+                reserveAda: Number(bestLovelace) / 1e6,
                 timestamp: Date.now(),
               };
             }
@@ -610,7 +615,7 @@ async function fetchOnChainMinswapV1PoolPrice(unit, decimals) {
       "e4214b7cce62ac6fbba385d164df48e157eae5863521b4b67ca71d86",
       "13aa2accf2e1561723aa26871e071fdf32c867cff7e7d50ad470d62f",
     ],
-    minLovelace: 400_000_000n, // >= 400 ADA (includes GENS 430 ADA V1 pool while rejecting <400 ADA dust)
+    minLovelace: 1_000_000_000n, // >= 1,000 ADA (rejects deprecated <1,000 ADA V1 remnant pools)
   });
 }
 
@@ -637,6 +642,36 @@ async function fetchOnChainSundaeSwapV1PoolPrice(unit, decimals) {
     poolAddr: "addr1w9qzpelu9hn45pefc0xr4ac4kdxeswq7pndul2vuj59u8tqaxdznu",
     nftPrefixes: ["0029cb7c88c7567b63d1a512c0ed626aa169688ec980730c0473b913"],
     minLovelace: 1_000_000_000n, // >= 1,000 ADA
+  });
+}
+
+// 4E. Fetch On-Chain WingRiders V2 Pool UTxO via Blockfrost
+async function fetchOnChainWingRidersV2PoolPrice(unit, decimals) {
+  return fetchOnChainDexPoolPrice({
+    unit,
+    decimals,
+    providerName: "blockfrost-wingriders-v2-onchain",
+    venueName: "wingriders-v2",
+    poolAddr: "script147thjwu8qtecr9mvajp7xqlfecths9zccu7yhvt0uq4cxrg3w6r",
+    nftPrefixes: ["6fdc63a1d71dc2c65502b79baae7fb543185702b12c3c5fb639ed7374c"],
+    minLovelace: 800_000_000n, // >= 800 ADA
+    depositDeductLovelace: 3_000_000n,
+    exactAmountCount: 4,
+  });
+}
+
+// 4F. Fetch On-Chain WingRiders V1 Pool UTxO via Blockfrost
+async function fetchOnChainWingRidersV1PoolPrice(unit, decimals) {
+  return fetchOnChainDexPoolPrice({
+    unit,
+    decimals,
+    providerName: "blockfrost-wingriders-v1-onchain",
+    venueName: "wingriders-v1",
+    poolAddr: "script1umys5kfrwya027rfv00wpl0lmqcv5lsvs6syrk09svlfzwn6pvf",
+    nftPrefixes: ["026a18d04a0c642759bb3d83b12e3344894e5c1c7b2aeb1a2113a5704c"],
+    minLovelace: 400_000_000n, // >= 400 ADA
+    depositDeductLovelace: 3_000_000n,
+    exactAmountCount: 4,
   });
 }
 
@@ -720,7 +755,18 @@ async function getMultiSourceQuotes(queryUnit, querySymbol, explicitDecimals) {
 
   const decimals = await resolveDecimalsAsync(queryUnit, querySymbol, explicitDecimals);
 
-  const [minswap, dexscreener, gecko, blockfrostV2, blockfrostV1, sundaeV3, sundaeV1, coingecko] = await Promise.all([
+  const [
+    minswapRaw,
+    dexscreener,
+    gecko,
+    blockfrostV2,
+    blockfrostV1,
+    sundaeV3,
+    sundaeV1,
+    wingridersV2,
+    wingridersV1,
+    coingecko,
+  ] = await Promise.all([
     fetchMinswapPrice(queryUnit),
     fetchDexScreenerPrice(queryUnit),
     fetchGeckoTerminalPrice(queryUnit, querySymbol),
@@ -728,8 +774,21 @@ async function getMultiSourceQuotes(queryUnit, querySymbol, explicitDecimals) {
     fetchOnChainMinswapV1PoolPrice(queryUnit, decimals),
     fetchOnChainSundaeSwapV3PoolPrice(queryUnit, decimals),
     fetchOnChainSundaeSwapV1PoolPrice(queryUnit, decimals),
+    fetchOnChainWingRidersV2PoolPrice(queryUnit, decimals),
+    fetchOnChainWingRidersV1PoolPrice(queryUnit, decimals),
     fetchCoinGeckoPrice(querySymbol, queryUnit),
   ]);
+
+  // If Minswap's /aggregator/tokens endpoint is echoing a deprecated <1,000 ADA V1 pool
+  // (i.e. blockfrostV1 is null, blockfrostV2 >= 1,000 ADA exists, and minswapRaw diverges >5% from blockfrostV2),
+  // prefer the deep Minswap V2 pool over the stale V1 aggregator ticker.
+  const minswap =
+    minswapRaw &&
+    blockfrostV2 &&
+    !blockfrostV1 &&
+    Math.abs(minswapRaw.price - blockfrostV2.price) / Math.min(minswapRaw.price, blockfrostV2.price) > 0.05
+      ? null
+      : minswapRaw;
 
   const freshQuotes = [
     minswap,
@@ -739,6 +798,8 @@ async function getMultiSourceQuotes(queryUnit, querySymbol, explicitDecimals) {
     blockfrostV1,
     sundaeV3,
     sundaeV1,
+    wingridersV2,
+    wingridersV1,
     coingecko,
   ].filter(Boolean);
 
@@ -818,33 +879,43 @@ function evaluateDivergence(quotes, maxDivergenceRatio = 0.05) {
   const totalMax = sortedPrices[sortedPrices.length - 1];
   const totalSpreadPct = totalMin > 0 ? ((totalMax - totalMin) / totalMin) * 100 : 100;
 
-  // Select quotes within maxDivergenceRatio of the median consensus
-  const concordant = validQuotes.filter(
-    (q) => Math.abs(q.price - medianPrice) / Math.min(q.price, medianPrice) <= maxDivergenceRatio
-  );
+  // Greedily build the concordant cluster outward from the median while keeping
+  // both individual deviation from median and total cluster spread within maxDivergenceRatio
+  const candidatesByDist = validQuotes
+    .filter((q) => Math.abs(q.price - medianPrice) / Math.min(q.price, medianPrice) <= maxDivergenceRatio)
+    .sort((a, b) => Math.abs(a.price - medianPrice) - Math.abs(b.price - medianPrice));
+
+  const concordant = [];
+  let cMin = Infinity;
+  let cMax = -Infinity;
+  for (const q of candidatesByDist) {
+    const nextMin = Math.min(cMin, q.price);
+    const nextMax = Math.max(cMax, q.price);
+    const nextSpread = nextMin > 0 ? (nextMax - nextMin) / nextMin : 1.0;
+    if (concordant.length === 0 || nextSpread <= maxDivergenceRatio) {
+      concordant.push(q);
+      cMin = nextMin;
+      cMax = nextMax;
+    }
+  }
   const concordantGroups = new Set(concordant.map(inferProviderGroup));
 
   if (concordant.length >= 2 && concordantGroups.size >= 2) {
     const cPrices = concordant.map((q) => q.price).sort((a, b) => a - b);
-    const cMin = cPrices[0];
-    const cMax = cPrices[cPrices.length - 1];
     const clusterSpreadRatio = cMin > 0 ? (cMax - cMin) / cMin : 1.0;
-
-    if (clusterSpreadRatio <= maxDivergenceRatio) {
-      const consensusMedian = computeMedian(cPrices);
-      const cMean = cPrices.reduce((acc, v) => acc + v, 0) / cPrices.length;
-      const divPct = clusterSpreadRatio * 100;
-      return {
-        approved: true,
-        divergencePercent: divPct,
-        totalSpreadPercent: totalSpreadPct,
-        meanPrice: consensusMedian,
-        arithmeticMeanPrice: cMean,
-        concordantSources: concordant.map((q) => q.provider),
-        independentProviderCount: concordantGroups.size,
-        quotes,
-      };
-    }
+    const consensusMedian = computeMedian(cPrices);
+    const cMean = cPrices.reduce((acc, v) => acc + v, 0) / cPrices.length;
+    const divPct = clusterSpreadRatio * 100;
+    return {
+      approved: true,
+      divergencePercent: divPct,
+      totalSpreadPercent: totalSpreadPct,
+      meanPrice: consensusMedian,
+      arithmeticMeanPrice: cMean,
+      concordantSources: concordant.map((q) => q.provider),
+      independentProviderCount: concordantGroups.size,
+      quotes,
+    };
   }
 
   // Fallback: find the tightest pair across DISTINCT independent provider groups,
