@@ -106,55 +106,116 @@ export async function fetchMinswapPrice(unit: string): Promise<PriceQuote | null
 }
 
 /**
- * Fetch spot price from Source B: GeckoTerminal (DexScreener/CoinGecko on-chain pools)
+ * Fetch spot price from Source B: GeckoTerminal (CoinGecko on-chain DEX pools).
+ * Queries by exact token unit first (/tokens/{unit}/pools) and falls back to symbol search.
+ * Supports both Token / ADA (base_token_price_native_currency) and inverted ADA / Token
+ * (quote_token_price_native_currency) pools, enforces >= $500 liquidity, and filters out
+ * 0-transaction frozen indexers (e.g. saturnswap) when active pools exist.
  */
-export async function fetchGeckoTerminalPrice(symbol: string): Promise<PriceQuote | null> {
+export async function fetchGeckoTerminalPrice(symbol: string, unit?: string): Promise<PriceQuote | null> {
   if (symbol.toUpperCase() === "ADA" || symbol.toUpperCase() === "TADA") {
     return { provider: "geckoterminal", price: 1.0, timestamp: Date.now() };
   }
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
-
-    const res = await fetch(
-      `https://api.geckoterminal.com/api/v2/search/pools?query=${encodeURIComponent(symbol)}&network=cardano`,
-      {
-        headers: { Accept: "application/json" },
-        signal: controller.signal,
-      }
-    );
-    clearTimeout(timeoutId);
-
-    if (!res.ok) return null;
-    const data = await res.json();
-    const targetSymbol = symbol.toUpperCase();
-    const pool = (data?.data || [])
-      .filter((p: any) => {
-        const poolName = (p.attributes?.name || "").toUpperCase();
-        const [baseSym, quoteSym] = poolName.split("/").map((s: string) => s.trim());
-        return baseSym === targetSymbol && (quoteSym === "ADA" || quoteSym === "WADA");
-      })
-      .sort((a: any, b: any) => parseFloat(b.attributes?.reserve_in_usd || 0) - parseFloat(a.attributes?.reserve_in_usd || 0))[0];
-
-    if (pool && pool.attributes?.base_token_price_native_currency) {
-      const price = parseFloat(pool.attributes.base_token_price_native_currency);
-      if (Number.isFinite(price) && price > 0) {
-        return {
-          provider: "geckoterminal",
-          price,
-          timestamp: Date.now(),
-        };
+    let rawPools: any[] = [];
+    if (unit && unit !== "lovelace") {
+      const u = PREPROD_TO_MAINNET_ASSETS[unit] || unit;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const res = await fetch(
+        `https://api.geckoterminal.com/api/v2/networks/cardano/tokens/${encodeURIComponent(u)}/pools?page=1`,
+        {
+          headers: { Accept: "application/json" },
+          signal: controller.signal,
+        }
+      );
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const data = await res.json();
+        rawPools = data?.data || [];
       }
     }
-    return null;
+
+    if (rawPools.length === 0) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const res = await fetch(
+        `https://api.geckoterminal.com/api/v2/search/pools?query=${encodeURIComponent(symbol)}&network=cardano`,
+        {
+          headers: { Accept: "application/json" },
+          signal: controller.signal,
+        }
+      );
+      clearTimeout(timeoutId);
+      if (!res.ok) return null;
+      const data = await res.json();
+      rawPools = data?.data || [];
+    }
+
+    const targetSymbol = symbol.toUpperCase();
+    const targetUnit = (unit ? PREPROD_TO_MAINNET_ASSETS[unit] || unit : "").toLowerCase();
+
+    const extractPoolCandidate = (p: any) => {
+      const reserveUsd = parseFloat(p.attributes?.reserve_in_usd || 0);
+      if (!(reserveUsd >= 500)) return null;
+
+      const baseId = (p.relationships?.base_token?.data?.id || "").toLowerCase();
+      const quoteId = (p.relationships?.quote_token?.data?.id || "").toLowerCase();
+      const dexId = (p.relationships?.dex?.data?.id || "").toLowerCase();
+      const poolName = (p.attributes?.name || "").toUpperCase();
+      const [baseSym, quoteSym] = poolName.split("/").map((s: string) => s.trim());
+
+      const isAdaId = (id: string) => id === "cardano_lovelace" || id === "cardano_0x";
+      const isAdaSym = (sym: string) => sym === "ADA" || sym === "WADA";
+
+      const isNormalPair = targetUnit
+        ? baseId === `cardano_${targetUnit}` && (isAdaId(quoteId) || isAdaSym(quoteSym))
+        : baseSym === targetSymbol && isAdaSym(quoteSym);
+
+      const isInvertedPair = targetUnit
+        ? quoteId === `cardano_${targetUnit}` && (isAdaId(baseId) || isAdaSym(baseSym))
+        : quoteSym === targetSymbol && isAdaSym(baseSym);
+
+      let priceAda = NaN;
+      if (isNormalPair) {
+        priceAda = parseFloat(p.attributes?.base_token_price_native_currency || "NaN");
+      } else if (isInvertedPair) {
+        priceAda = parseFloat(p.attributes?.quote_token_price_native_currency || "NaN");
+      } else {
+        return null;
+      }
+
+      if (!Number.isFinite(priceAda) || priceAda <= 0) return null;
+
+      const txns24h = p.attributes?.transactions?.h24;
+      const totalTx24h = txns24h
+        ? (Number(txns24h.buys) || 0) + (Number(txns24h.sells) || 0)
+        : 0;
+
+      return { priceAda, reserveUsd, totalTx24h, dexId };
+    };
+
+    const candidates = rawPools.map(extractPoolCandidate).filter((c): c is NonNullable<typeof c> => c !== null);
+    if (candidates.length === 0) return null;
+
+    const activeCandidates = candidates.filter((c) => c.totalTx24h > 0 && c.dexId !== "saturnswap");
+    const chosenList = activeCandidates.length > 0 ? activeCandidates : candidates;
+    chosenList.sort((a, b) => b.reserveUsd - a.reserveUsd);
+    const best = chosenList[0];
+
+    return {
+      provider: "geckoterminal",
+      price: best.priceAda,
+      timestamp: Date.now(),
+    };
   } catch {
     return null;
   }
 }
 
 /**
- * Validates price divergence between multiple sources.
+ * Validates price divergence across all valid sources.
  * If divergence > maxAllowedDivergenceRatio, refuses approval.
  */
 export function evaluatePriceDivergence(
@@ -170,8 +231,8 @@ export function evaluatePriceDivergence(
     };
   }
 
-  const prices = quotes.map((q) => q.price).filter((p) => Number.isFinite(p) && p > 0);
-  if (prices.length < 2) {
+  const validQuotes = quotes.filter((q) => Number.isFinite(q.price) && q.price > 0);
+  if (validQuotes.length < 2) {
     return {
       approved: false,
       divergencePercent: 100,
@@ -180,23 +241,25 @@ export function evaluatePriceDivergence(
     };
   }
 
-  const p1 = prices[0];
-  const p2 = prices[1];
-  const minP = Math.min(p1, p2);
-  const diff = Math.abs(p1 - p2);
+  const prices = validQuotes.map((q) => q.price);
+  const minP = Math.min(...prices);
+  const maxP = Math.max(...prices);
+  const diff = maxP - minP;
   const divergence = minP > 0 ? diff / minP : 1.0;
   const divergencePercent = divergence * 100;
 
   if (divergence > maxAllowedDivergenceRatio) {
+    const minQuote = validQuotes.find((q) => q.price === minP)!;
+    const maxQuote = validQuotes.find((q) => q.price === maxP)!;
     return {
       approved: false,
       divergencePercent,
-      rejectionReason: `Safety alert: Price divergence between ${quotes[0].provider} (${p1.toFixed(6)}) and ${quotes[1].provider} (${p2.toFixed(6)}) is ${divergencePercent.toFixed(2)}%, exceeding maximum safety threshold of ${(maxAllowedDivergenceRatio * 100).toFixed(1)}%.`,
+      rejectionReason: `Safety alert: Price divergence between ${minQuote.provider} (${minP.toFixed(6)}) and ${maxQuote.provider} (${maxP.toFixed(6)}) is ${divergencePercent.toFixed(2)}%, exceeding maximum safety threshold of ${(maxAllowedDivergenceRatio * 100).toFixed(1)}%.`,
       quotes,
     };
   }
 
-  const meanPrice = (p1 + p2) / 2;
+  const meanPrice = prices.reduce((acc, p) => acc + p, 0) / prices.length;
   return {
     approved: true,
     divergencePercent,
@@ -404,7 +467,7 @@ export async function fetchDualSourceValidatedPrice(params: {
 
   const [minswapQuote, geckoQuote] = await Promise.all([
     fetchMinswapPrice(targetUnit),
-    fetchGeckoTerminalPrice(params.symbol),
+    fetchGeckoTerminalPrice(params.symbol, targetUnit),
   ]);
 
   const quotes: PriceQuote[] = [];
